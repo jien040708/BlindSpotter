@@ -58,6 +58,14 @@ python scripts/visualize_sample.py --root data/sample --output outputs/figures
 
 ## Colab Quick Start
 
+Open the project notebook:
+
+```text
+notebooks/IMPTC_BlindZone_GraphML.ipynb
+```
+
+Or run the same workflow manually in Colab:
+
 ```python
 !git clone https://github.com/jien040708/BlindSpotter.git
 %cd BlindSpotter
