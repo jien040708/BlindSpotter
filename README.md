@@ -46,7 +46,7 @@ scripts/
 └── validate_preprocessing.py # 생성된 graph JSON 검증
 
 notebooks/
-└── IMPTC_BlindZone_GraphML.ipynb  # Colab draft / 실험용 notebook
+└── IMPTC_BlindZone_GraphML.ipynb  # scripts/src를 실행하는 Colab notebook
 ```
 
 IMPTC 데이터를 읽는 방식을 바꾸고 싶다면:
@@ -80,6 +80,8 @@ notebooks/IMPTC_BlindZone_GraphML.ipynb
 ```
 
 단, 중요한 로직은 notebook 안에만 두지 말고 나중에 `src/` 또는 `scripts/`로 옮겨야 합니다. 그래야 팀원 모두가 같은 코드를 재사용할 수 있습니다.
+
+현재 Colab notebook은 전처리 함수를 직접 길게 들고 있지 않고, `scripts/`와 `src/`를 실행하도록 정리되어 있습니다. 따라서 전처리 로직을 바꾸려면 notebook보다 `src/` 또는 `scripts/` 파일을 먼저 수정하는 것이 좋습니다.
 
 ## Colab에서 처음 실행하는 방법
 
