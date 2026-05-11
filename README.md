@@ -1,85 +1,88 @@
 # BlindSpotter
 
-BlindSpotter is a preprocessing prototype for predicting whether a scooter-like vulnerable road user (VRU) may emerge from a blind zone within a short future time window.
+BlindSpotter는 전동킥보드와 같은 scooter-like VRU(Vulnerable Road User)가 짧은 미래 시간 안에 blind zone에서 등장할 위험을 예측하기 위한 전처리 프로토타입입니다.
 
-Our current research question is:
+현재 연구 질문은 다음과 같습니다.
 
 ```text
 P(VRU emerges from blind-zone within 3 seconds)
 ```
 
-We use the IMPTC sample dataset first, not the full dataset, so that the whole team can run and debug the pipeline quickly.
+즉, 이미 보이는 전동킥보드를 탐지하는 것이 아니라, **현재 보이지 않는 blind-zone 자체가 위험한지**를 graph 기반으로 예측하는 것이 목표입니다.
 
-## Team Workflow
+처음부터 전체 IMPTC dataset을 사용하지 않고, 팀원 모두가 빠르게 실행하고 디버깅할 수 있도록 IMPTC sample dataset부터 사용합니다.
 
-Use this rule:
+## 팀 작업 방식
+
+이 프로젝트에서는 아래 규칙을 따릅니다.
 
 ```text
-GitHub = code sharing
-Colab = running experiments
-data/ = downloaded locally or in Colab, not committed
-outputs/ = generated locally or in Colab, not committed
+GitHub = 코드 공유
+Colab = 실험 실행
+data/ = 각자 로컬 또는 Colab에서 다운로드, GitHub에 올리지 않음
+outputs/ = 실행 결과물, GitHub에 올리지 않음
 ```
 
-Do not upload dataset files, zip/tar files, generated graphs, or generated figures to GitHub. They are intentionally ignored by `.gitignore`.
+dataset 파일, zip/tar 압축 파일, 생성된 graph, 생성된 figure는 GitHub에 올리지 않습니다.  
+이 파일들은 `.gitignore`에 의해 자동으로 무시되도록 설정되어 있습니다.
 
-## What To Edit
+## 어떤 파일을 수정해야 하나요?
 
-Most project work should happen in `src/` and `scripts/`.
+대부분의 프로젝트 코드는 `src/`와 `scripts/` 안에 있습니다.
 
 ```text
 src/
-├── imptc_dataset.py    # Reads IMPTC tracks and turns them into Scene/Frame/ObjectState
-├── dataset.py          # Common data classes: Scene, Frame, ObjectState
-├── graph_builder.py    # Builds graph nodes, edges, blind-zone nodes, graph features
-├── label_builder.py    # Builds risk labels and blind-zone emergence labels
-└── utils.py            # Shared helper functions
+├── imptc_dataset.py    # IMPTC track을 읽어서 Scene/Frame/ObjectState로 변환
+├── dataset.py          # 공통 데이터 구조: Scene, Frame, ObjectState
+├── graph_builder.py    # graph node, edge, blind-zone node, graph feature 생성
+├── label_builder.py    # risk label, blind-zone emergence label 생성
+└── utils.py            # 여러 파일에서 함께 쓰는 helper 함수
 
 scripts/
-├── download_imptc_sample.sh  # Downloads the IMPTC sample data
-├── inspect_dataset.py        # Checks dataset structure
-├── preprocess_sample.py      # Converts sample data into graph JSON files
-└── visualize_sample.py       # Saves top-view PNG visualizations
+├── download_imptc_sample.sh  # IMPTC sample data 다운로드
+├── inspect_dataset.py        # dataset 구조 확인
+├── preprocess_sample.py      # sample data를 graph JSON으로 변환
+└── visualize_sample.py       # top-view PNG 시각화 저장
 
 notebooks/
-└── IMPTC_BlindZone_GraphML.ipynb  # Colab draft / experiment notebook
+└── IMPTC_BlindZone_GraphML.ipynb  # Colab draft / 실험용 notebook
 ```
 
-If you want to change how IMPTC data is read, edit:
+IMPTC 데이터를 읽는 방식을 바꾸고 싶다면:
 
 ```text
 src/imptc_dataset.py
 ```
 
-If you want to change graph nodes, edges, or blind-zone candidate generation, edit:
+graph node, edge, blind-zone 후보 생성 방식을 바꾸고 싶다면:
 
 ```text
 src/graph_builder.py
 ```
 
-If you want to change the risk label, edit:
+risk label 또는 blind-zone label을 바꾸고 싶다면:
 
 ```text
 src/label_builder.py
 ```
 
-If you want to change command-line options or how preprocessing is executed, edit:
+전처리 실행 옵션이나 실행 흐름을 바꾸고 싶다면:
 
 ```text
 scripts/preprocess_sample.py
 ```
 
-If you only want to test ideas or make plots, use:
+아이디어를 빠르게 테스트하거나 그림을 보고 싶다면:
 
 ```text
 notebooks/IMPTC_BlindZone_GraphML.ipynb
 ```
 
-But once an idea becomes important, move the logic into `src/` or `scripts/` so everyone can reuse it.
+단, 중요한 로직은 notebook 안에만 두지 말고 나중에 `src/` 또는 `scripts/`로 옮겨야 합니다. 그래야 팀원 모두가 같은 코드를 재사용할 수 있습니다.
 
-## Colab Quick Start
+## Colab에서 처음 실행하는 방법
 
-In a new Colab notebook, run:
+새 Colab notebook에서 아래 셀을 실행합니다.
 
 ```python
 !git clone https://github.com/jien040708/BlindSpotter.git
@@ -88,13 +91,13 @@ In a new Colab notebook, run:
 !bash scripts/download_imptc_sample.sh
 ```
 
-Inspect the dataset:
+dataset 구조를 확인합니다.
 
 ```python
 !python scripts/inspect_dataset.py --root data/sample
 ```
 
-Run a small preprocessing test:
+작은 전처리 테스트를 실행합니다.
 
 ```python
 !python scripts/preprocess_sample.py \
@@ -105,7 +108,7 @@ Run a small preprocessing test:
   --frame-stride 10
 ```
 
-Create top-view figures:
+top-view figure를 생성합니다.
 
 ```python
 !python scripts/visualize_sample.py \
@@ -115,43 +118,53 @@ Create top-view figures:
   --max-frames 20
 ```
 
-Generated files will appear inside Colab:
+실행 결과는 Colab 안에서 아래 폴더에 생성됩니다.
 
 ```text
-outputs/graphs/    # graph JSON files for later GNN input
-outputs/figures/   # PNG visualizations for checking results
+outputs/graphs/    # 나중에 GNN 입력으로 사용할 graph JSON 파일
+outputs/figures/   # 결과 확인용 PNG 시각화 파일
 ```
 
-These outputs are not pushed to GitHub.
+이 결과물들은 GitHub에 push하지 않습니다.
 
-## Updating Code In Colab
+## Colab에서 최신 코드 받기
 
-If someone changed GitHub and you want the newest code in Colab:
+다른 팀원이 GitHub에 코드를 올렸고, Colab에서 최신 코드를 받고 싶다면:
 
 ```python
 %cd /content/BlindSpotter
 !git pull
 ```
 
-Then rerun the script you need.
+그 다음 필요한 script를 다시 실행하면 됩니다.
 
-If you edited files directly inside Colab, download/copy those changes carefully or push them from a branch. For beginners, it is easier to edit code locally or ask Codex to edit files, then push to GitHub.
+Colab 안에서 직접 파일을 수정할 수도 있지만, 초보자에게는 추천하지 않습니다.  
+Colab에서 수정한 내용은 런타임이 초기화되면 사라질 수 있고, GitHub에 반영하려면 별도로 commit/push를 해야 합니다.
 
-## Beginner Git Workflow
+초보자에게 추천하는 방식은:
 
-Before starting work:
+```text
+1. 로컬 또는 Codex에서 코드 파일 수정
+2. GitHub에 push
+3. Colab에서 git pull
+4. Colab에서 실행
+```
+
+## Git 초보자용 작업 흐름
+
+작업을 시작하기 전에 항상 최신 코드를 받습니다.
 
 ```bash
 git pull
 ```
 
-Create your own branch:
+자기 작업용 branch를 만듭니다.
 
 ```bash
 git checkout -b feature/your-task-name
 ```
 
-Examples:
+예시:
 
 ```bash
 git checkout -b feature/imptc-loader
@@ -160,7 +173,7 @@ git checkout -b feature/visualization
 git checkout -b feature/gnn-model
 ```
 
-After editing code:
+코드를 수정한 뒤:
 
 ```bash
 git status
@@ -169,20 +182,20 @@ git commit -m "Describe what you changed"
 git push origin feature/your-task-name
 ```
 
-Then open a Pull Request on GitHub and merge it into `main` after review.
+그 다음 GitHub에서 Pull Request를 열고, 확인 후 `main` branch에 merge합니다.
 
-Avoid committing these folders:
+아래 폴더는 commit하지 않습니다.
 
 ```text
 data/
 outputs/
 ```
 
-They are ignored by Git, but still avoid manually forcing them into a commit.
+이 폴더들은 `.gitignore`로 무시되지만, 실수로 강제로 추가하지 않도록 주의합니다.
 
-## Recommended Team Split
+## 팀원 역할 분담 예시
 
-Team member 1: Data and preprocessing
+팀원 1: 데이터 로딩 / 전처리
 
 ```text
 src/imptc_dataset.py
@@ -190,7 +203,7 @@ scripts/inspect_dataset.py
 scripts/preprocess_sample.py
 ```
 
-Team member 2: Blind-zone and labels
+팀원 2: blind-zone / label
 
 ```text
 src/graph_builder.py
@@ -198,7 +211,7 @@ src/label_builder.py
 scripts/visualize_sample.py
 ```
 
-Team member 3: Model and experiments
+팀원 3: 모델 / 실험
 
 ```text
 notebooks/
@@ -206,9 +219,9 @@ future src/model.py
 future scripts/train.py
 ```
 
-## Local Usage
+## 로컬에서 실행하는 방법
 
-If you run this project on your laptop instead of Colab:
+Colab이 아니라 노트북/PC에서 실행하고 싶다면:
 
 ```bash
 git clone https://github.com/jien040708/BlindSpotter.git
@@ -219,28 +232,30 @@ python scripts/inspect_dataset.py --root data/sample
 python scripts/preprocess_sample.py --root data/sample --output outputs/graphs --max-sequences 1 --max-frames 120 --frame-stride 10
 ```
 
-## Pipeline
+## 현재 파이프라인
 
-The current pipeline is:
+현재 구현된 pipeline은 다음과 같습니다.
 
 ```text
-1. Download IMPTC sample data
-2. Inspect dataset structure
-3. Load vehicle and VRU trajectories
-4. Select a temporary reference vehicle
-5. Build frame-level graph representations
-6. Add blind-zone candidate nodes
-7. Generate heuristic blind-zone labels
-8. Save graph JSON files and optional visualizations
+1. IMPTC sample data 다운로드
+2. dataset 구조 확인
+3. vehicle / VRU trajectory 로드
+4. 임시 reference vehicle 선택
+5. frame 단위 graph 생성
+6. blind-zone 후보 node 추가
+7. heuristic blind-zone label 생성
+8. graph JSON과 선택적 visualization 저장
 ```
 
 ## Graph Output
 
-Each scene graph is saved as JSON by default.
+각 scene graph는 기본적으로 JSON으로 저장됩니다.
 
-For IMPTC, the loader chooses the longest vehicle track as a temporary `reference_vehicle`. The graph builder then adds `occlusion_zone` nodes behind nearby vehicle occluders.
+IMPTC에는 자율주행 dataset처럼 명확한 ego vehicle이 없기 때문에, 현재 loader는 가장 길게 관측된 vehicle track을 임시 `reference_vehicle`로 선택합니다.
 
-Each frame graph includes:
+그 다음 graph builder가 주변 vehicle occluder 뒤쪽에 `occlusion_zone` node를 추가합니다.
+
+각 frame graph에는 다음 정보가 들어갑니다.
 
 ```text
 node_ids
@@ -253,31 +268,32 @@ blind_node_indices
 blind_y
 ```
 
-`blind_y = 1` means a scooter-like VRU appears near that blind-zone within the future time window.
+`blind_y = 1`은 해당 blind-zone 근처에 미래 시간 window 안에서 scooter-like VRU가 등장했다는 뜻입니다.
 
-Current node features:
+현재 node feature는 다음과 같습니다.
 
 ```text
 x, y, vx, vy, heading, object_type_id, distance_to_ego,
 relative_angle_to_ego, visibility, is_occluder, is_vulnerable_road_user
 ```
 
-Current edge features:
+현재 edge feature는 다음과 같습니다.
 
 ```text
 distance, relative_velocity_x, relative_velocity_y,
 relative_heading, time_to_collision, visibility_blocked
 ```
 
-## Current Limitations
+## 현재 한계
 
-The current blind-zone logic is a simple heuristic. It places candidate blind-zone nodes behind nearby vehicle occluders. It is not yet a full geometric occlusion model.
+현재 blind-zone logic은 단순 heuristic입니다.  
+주변 vehicle occluder 뒤쪽에 candidate blind-zone node를 배치하는 방식이며, 아직 정확한 geometric occlusion model은 아닙니다.
 
-Future work:
+앞으로 할 일:
 
-- Improve occlusion geometry
-- Add road geometry and map features
-- Add traffic light and weather context
-- Export directly to PyTorch Geometric `Data`
-- Train a spatiotemporal GNN
-- Evaluate early-warning performance
+- occlusion geometry 개선
+- road geometry와 map feature 추가
+- traffic light / weather context 추가
+- PyTorch Geometric `Data` 형식으로 직접 export
+- spatiotemporal GNN 학습
+- early-warning 성능 평가
