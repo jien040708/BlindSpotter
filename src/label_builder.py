@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .dataset import Frame, ObjectState, Scene
-from .utils import euclidean
+from .utils import euclidean, point_in_polygon
 
 
 SCOOTER_TOKENS = {"scooter", "e-scooter", "electric_scooter", "micromobility"}
@@ -74,11 +74,15 @@ def build_blind_zone_label(
     distance_threshold: float = 6.0,
 ) -> int:
     start_time = scene.frames[frame_index].timestamp
+    polygon = blind_zone.raw.get("polygon") if isinstance(blind_zone.raw, dict) else None
     for future in scene.frames[frame_index + 1 :]:
         if future.timestamp - start_time > time_window:
             break
         for obj in future.objects:
             if is_scooter(obj.object_type) and obj.visible:
-                if euclidean((blind_zone.x, blind_zone.y), (obj.x, obj.y)) <= distance_threshold:
+                obj_xy = (obj.x, obj.y)
+                if polygon and point_in_polygon(obj_xy, polygon):
+                    return 1
+                if euclidean((blind_zone.x, blind_zone.y), obj_xy) <= distance_threshold:
                     return 1
     return 0

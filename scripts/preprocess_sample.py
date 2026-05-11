@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import pickle
 import sys
@@ -42,6 +43,7 @@ def main() -> None:
         print("[WARN] No parseable scenes found. Add sample annotation files under data/sample and rerun.")
         return
 
+    summaries = []
     for scene in scenes:
         graph = build_scene_graph(scene, neighbor_radius=args.neighbor_radius)
         output_path = output_dir / f"{scene.scene_id}.{args.format}"
@@ -50,7 +52,39 @@ def main() -> None:
         else:
             with output_path.open("wb") as f:
                 pickle.dump(graph, f)
-        print(f"[OK] Saved {output_path} (frames={len(graph['frames'])}, scene_label={graph['y']})")
+        summary = summarize_graph(graph)
+        summaries.append({"output_path": str(output_path), **summary})
+        print(
+            f"[OK] Saved {output_path} "
+            f"(frames={summary['frames']}, blind_nodes={summary['blind_nodes']}, "
+            f"positive_blind_labels={summary['positive_blind_labels']})"
+        )
+
+    summary_path = output_dir / "preprocess_summary.json"
+    summary_path.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+    print(f"[OK] Wrote {summary_path}")
+
+
+def summarize_graph(graph: dict) -> dict:
+    frames = graph.get("frames", [])
+    blind_nodes = sum(len(frame.get("blind_node_indices", [])) for frame in frames)
+    positive_blind = sum(sum(int(v) for v in frame.get("blind_y", [])) for frame in frames)
+    nodes = sum(len(frame.get("node_ids", [])) for frame in frames)
+    edges = sum(len(frame.get("edge_attr", [])) for frame in frames)
+    node_types = {}
+    for frame in frames:
+        for node_type in frame.get("node_types", []):
+            node_types[node_type] = node_types.get(node_type, 0) + 1
+    return {
+        "scene_id": graph.get("scene_id"),
+        "frames": len(frames),
+        "nodes": nodes,
+        "edges": edges,
+        "blind_nodes": blind_nodes,
+        "positive_blind_labels": positive_blind,
+        "scene_label": graph.get("y"),
+        "node_types": dict(sorted(node_types.items())),
+    }
 
 
 if __name__ == "__main__":

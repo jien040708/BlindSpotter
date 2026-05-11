@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.dataset import FlexibleSceneDataset
+from src.graph_builder import build_blind_zone_nodes
 from src.imptc_dataset import is_imptc_root, load_imptc_scenes
 from src.label_builder import build_frame_risk_label, is_occluder, is_scooter
 from src.utils import ensure_dir
@@ -64,6 +65,15 @@ def save_frame_plot(scene_id: str, frame, output_dir: Path, plt) -> None:
             ax.add_patch(plt.Circle((obj.x, obj.y), 5.0, color="#111827", alpha=0.08))
         ax.scatter([obj.x], [obj.y], s=70, marker=marker, c=color, label=label)
         ax.text(obj.x + 0.4, obj.y + 0.4, obj.object_id, fontsize=8)
+
+    for blind in build_blind_zone_nodes(frame):
+        polygon = blind.raw.get("polygon", [])
+        if polygon:
+            xs = [p[0] for p in polygon] + [polygon[0][0]]
+            ys = [p[1] for p in polygon] + [polygon[0][1]]
+            ax.fill(xs, ys, color="#f97316", alpha=0.16, label="blind-zone")
+            ax.plot(xs, ys, color="#f97316", linestyle="--", linewidth=1.0)
+        ax.scatter([blind.x], [blind.y], s=45, marker="x", c="#f97316")
 
     risk = build_frame_risk_label(frame)
     ax.set_title(f"{scene_id} frame={frame.frame_id} risk={risk}")

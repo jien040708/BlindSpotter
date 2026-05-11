@@ -139,7 +139,16 @@ def normalize_track_states(raw_states: dict[str, Any]) -> dict[str, dict[str, fl
         vx = (next_state["x"] - prev_state["x"]) / dt
         vy = (next_state["y"] - prev_state["y"]) / dt
         heading = math.atan2(vy, vx) if abs(vx) + abs(vy) > 1e-6 else 0.0
-        state.update({"vx": vx, "vy": vy, "heading": heading})
+        prev_vx = 0.0
+        prev_vy = 0.0
+        if idx > 0:
+            prev_prev_state = ordered[max(0, idx - 2)]
+            prev_dt = max((int(state["ts"]) - int(prev_prev_state["ts"])) / 1_000_000.0, 1e-6)
+            prev_vx = (state["x"] - prev_prev_state["x"]) / prev_dt
+            prev_vy = (state["y"] - prev_prev_state["y"]) / prev_dt
+        ax = (vx - prev_vx) / dt
+        ay = (vy - prev_vy) / dt
+        state.update({"vx": vx, "vy": vy, "ax": ax, "ay": ay, "heading": heading})
         states[state["ts"]] = state
     return states
 
@@ -169,7 +178,7 @@ def state_to_object(track: dict[str, Any], timestamp: str) -> ObjectState | None
     state = track["states"].get(timestamp)
     if state is None:
         return None
-    return ObjectState(
+    obj = ObjectState(
         object_id=str(track["id"]),
         object_type=str(track["object_type"]),
         x=float(state["x"]),
@@ -180,6 +189,15 @@ def state_to_object(track: dict[str, Any], timestamp: str) -> ObjectState | None
         visible=bool(state["visible"]),
         raw={"source_path": track["path"], "timestamp_us": timestamp, "ground_type": state.get("ground_type")},
     )
+    obj.raw.update(
+        {
+            "raw_class_name": track.get("raw_class_name"),
+            "speed": state.get("speed", 0.0),
+            "ax": state.get("ax", 0.0),
+            "ay": state.get("ay", 0.0),
+        }
+    )
+    return obj
 
 
 def nearest_state_to_object(track: dict[str, Any], timestamp: str) -> ObjectState | None:

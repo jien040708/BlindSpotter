@@ -106,5 +106,48 @@ def first_existing(mapping: dict[str, Any], keys: Iterable[str], default: Any = 
 def object_type_flags(object_type: str) -> tuple[int, int]:
     normalized = object_type.lower()
     is_occluder = int(any(token in normalized for token in ["parked", "vehicle", "car", "bus", "truck", "building", "wall"]))
-    is_vru = int(any(token in normalized for token in ["scooter", "bicycle", "bike", "pedestrian", "walker"]))
+    is_vru = int(any(token in normalized for token in ["scooter", "bicycle", "bike", "cyclist", "pedestrian", "walker"]))
     return is_occluder, is_vru
+
+
+def polygon_area(points: list[tuple[float, float]]) -> float:
+    if len(points) < 3:
+        return 0.0
+    area = 0.0
+    for idx, (x1, y1) in enumerate(points):
+        x2, y2 = points[(idx + 1) % len(points)]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2.0
+
+
+def polygon_centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
+    if not points:
+        return (0.0, 0.0)
+    signed_area = 0.0
+    cx = 0.0
+    cy = 0.0
+    for idx, (x1, y1) in enumerate(points):
+        x2, y2 = points[(idx + 1) % len(points)]
+        cross = x1 * y2 - x2 * y1
+        signed_area += cross
+        cx += (x1 + x2) * cross
+        cy += (y1 + y2) * cross
+    signed_area *= 0.5
+    if abs(signed_area) < 1e-9:
+        return (sum(x for x, _ in points) / len(points), sum(y for _, y in points) / len(points))
+    return (cx / (6.0 * signed_area), cy / (6.0 * signed_area))
+
+
+def point_in_polygon(point: tuple[float, float], polygon: list[tuple[float, float]]) -> bool:
+    if len(polygon) < 3:
+        return False
+    x, y = point
+    inside = False
+    j = len(polygon) - 1
+    for i, (xi, yi) in enumerate(polygon):
+        xj, yj = polygon[j]
+        intersects = (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / max(yj - yi, 1e-12) + xi
+        if intersects:
+            inside = not inside
+        j = i
+    return inside

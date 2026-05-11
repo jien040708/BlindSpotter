@@ -42,7 +42,8 @@ scripts/
 ├── download_imptc_sample.sh  # IMPTC sample data 다운로드
 ├── inspect_dataset.py        # dataset 구조 확인
 ├── preprocess_sample.py      # sample data를 graph JSON으로 변환
-└── visualize_sample.py       # top-view PNG 시각화 저장
+├── visualize_sample.py       # top-view PNG 시각화 저장
+└── validate_preprocessing.py # 생성된 graph JSON 검증
 
 notebooks/
 └── IMPTC_BlindZone_GraphML.ipynb  # Colab draft / 실험용 notebook
@@ -116,6 +117,12 @@ top-view figure를 생성합니다.
   --output outputs/figures \
   --max-files 1 \
   --max-frames 20
+```
+
+생성된 graph가 전처리 형식에 맞는지 검증합니다.
+
+```python
+!python scripts/validate_preprocessing.py --graphs outputs/graphs --write-summary
 ```
 
 실행 결과는 Colab 안에서 아래 폴더에 생성됩니다.
