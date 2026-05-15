@@ -252,6 +252,19 @@ future src/model.py
 future scripts/train.py
 ```
 
+MR-GCN / EIGCN / STGCN 세 모델 비교 계획은 아래 문서를 먼저 확인합니다.
+
+```text
+docs/dataset_contract.md
+docs/experiment_plan.md
+```
+
+모델별 input 형태가 제대로 만들어지는지 확인하려면:
+
+```bash
+python scripts/inspect_model_inputs.py --graphs outputs/graphs --history 5 --output outputs/model_input_summary.json
+```
+
 ## 로컬에서 실행하는 방법
 
 Colab이 아니라 노트북/PC에서 실행하고 싶다면:
