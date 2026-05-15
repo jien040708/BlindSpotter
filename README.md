@@ -36,6 +36,9 @@ src/
 ├── dataset.py          # 공통 데이터 구조: Scene, Frame, ObjectState
 ├── graph_builder.py    # graph node, edge, blind-zone node, graph feature 생성
 ├── label_builder.py    # risk label, blind-zone emergence label 생성
+├── gnn_dataset.py      # graph JSON을 GAT 학습 sample로 변환
+├── gnn_models.py       # Expert-informed GAT / Temporal GAT 모델
+├── training_utils.py   # 학습 metric, seed 고정 helper
 └── utils.py            # 여러 파일에서 함께 쓰는 helper 함수
 
 scripts/
@@ -43,7 +46,9 @@ scripts/
 ├── inspect_dataset.py        # dataset 구조 확인
 ├── preprocess_sample.py      # sample data를 graph JSON으로 변환
 ├── visualize_sample.py       # top-view PNG 시각화 저장
-└── validate_preprocessing.py # 생성된 graph JSON 검증
+├── validate_preprocessing.py # 생성된 graph JSON 검증
+├── train_single_frame_gat.py # Step 1: single-frame GAT baseline 학습
+└── train_temporal_gat.py     # Step 2~3: temporal + expert-informed GAT 학습
 
 notebooks/
 └── IMPTC_BlindZone_GraphML.ipynb  # scripts/src를 실행하는 Colab notebook
@@ -125,6 +130,25 @@ top-view figure를 생성합니다.
 
 ```python
 !python scripts/validate_preprocessing.py --graphs outputs/graphs --write-summary
+```
+
+Step 1 baseline인 single-frame GAT를 학습합니다.
+
+```python
+!python scripts/train_single_frame_gat.py \
+  --graphs outputs/graphs \
+  --epochs 10 \
+  --output outputs/models/single_frame_gat.pt
+```
+
+Step 2~3 temporal expert-informed GAT를 학습합니다.
+
+```python
+!python scripts/train_temporal_gat.py \
+  --graphs outputs/graphs \
+  --history 5 \
+  --epochs 10 \
+  --output outputs/models/temporal_gat.pt
 ```
 
 실행 결과는 Colab 안에서 아래 폴더에 생성됩니다.
@@ -254,6 +278,8 @@ python scripts/preprocess_sample.py --root data/sample --output outputs/graphs -
 6. blind-zone 후보 node 추가
 7. heuristic blind-zone label 생성
 8. graph JSON과 선택적 visualization 저장
+9. single-frame GAT baseline 학습
+10. temporal expert-informed GAT 학습
 ```
 
 ## Graph Output
@@ -300,9 +326,9 @@ relative_heading, time_to_collision, visibility_blocked
 
 앞으로 할 일:
 
-- occlusion geometry 개선
 - road geometry와 map feature 추가
 - traffic light / weather context 추가
 - PyTorch Geometric `Data` 형식으로 직접 export
-- spatiotemporal GNN 학습
+- 모델 성능 비교 및 ablation
 - early-warning 성능 평가
+- uncertainty / MDN head 추가
