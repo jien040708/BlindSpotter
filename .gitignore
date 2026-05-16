@@ -6,6 +6,9 @@ __pycache__/
 venv/
 env/
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # Data and generated artifacts are downloaded/generated per machine or Colab run.
 data/*
 !data/.gitkeep
