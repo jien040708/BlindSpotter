@@ -14,3 +14,5 @@ data/*
 !data/.gitkeep
 outputs/*
 !outputs/.gitkeep
+imptc_samples/
+imptc_trajectory/
