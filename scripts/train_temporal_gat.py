@@ -14,9 +14,17 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyTorch is required. In Colab, run: !pip install -r requirements.txt") from exc
 
-from src.gnn_dataset import estimate_pos_weight, load_temporal_samples, move_temporal_sample, split_samples
+from src.gnn_dataset import (
+    estimate_pos_weight,
+    fit_feature_normalizer,
+    load_temporal_samples,
+    move_temporal_sample,
+    normalize_temporal_samples,
+    stabilize_temporal_expert_features,
+    split_samples,
+)
 from src.gnn_models import TemporalGATClassifier
-from src.training_utils import binary_metrics, ensure_reproducible
+from src.training_utils import classification_report_metrics, ensure_reproducible
 from src.utils import ensure_dir
 
 
@@ -25,6 +33,7 @@ def main() -> None:
     parser.add_argument("--graphs", default="outputs/graphs", help="Directory containing graph JSON files")
     parser.add_argument("--output", default="outputs/models/temporal_gat.pt", help="Checkpoint output path")
     parser.add_argument("--history", type=int, default=5, help="Number of past/current frames per sample")
+    parser.add_argument("--prediction-horizon", type=int, default=0, help="Future frame offset for blind_y target")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--temporal-hidden-dim", type=int, default=64)
@@ -35,16 +44,52 @@ def main() -> None:
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--train-scenes", nargs="*", default=None)
+    parser.add_argument("--val-scenes", nargs="*", default=None)
+    parser.add_argument("--test-scenes", nargs="*", default=None)
+    parser.add_argument("--scene-split", default=None, help="JSON file with train/val/test scene id lists")
+    parser.add_argument("--metrics-output", default=None)
+    parser.add_argument("--no-normalize", action="store_true")
+    parser.add_argument("--disable-edge-attr", action="store_true", help="Ablation: remove expert edge features")
     args = parser.parse_args()
 
     ensure_reproducible(args.seed)
-    samples, metadata = load_temporal_samples(args.graphs, history=args.history)
+    scene_split = load_scene_split(args.scene_split)
+    train_scene_ids = scene_split.get("train", args.train_scenes)
+    val_scene_ids = scene_split.get("val", args.val_scenes)
+    test_scene_ids = scene_split.get("test", args.test_scenes)
+    samples, metadata = load_temporal_samples(args.graphs, history=args.history, prediction_horizon=args.prediction_horizon)
     if not samples:
         raise SystemExit(f"No temporal samples with blind-zone labels found in {args.graphs}")
-    train_samples, val_samples = split_samples(samples, val_ratio=args.val_ratio, seed=args.seed)
+    if train_scene_ids or val_scene_ids or test_scene_ids:
+        train_samples = filter_by_scene(samples, train_scene_ids)
+        val_samples = filter_by_scene(samples, val_scene_ids)
+        test_samples = filter_by_scene(samples, test_scene_ids)
+    else:
+        train_samples, val_samples = split_samples(samples, val_ratio=args.val_ratio, seed=args.seed)
+        test_samples = []
+    if args.disable_edge_attr:
+        train_samples = strip_temporal_edge_attr(train_samples)
+        val_samples = strip_temporal_edge_attr(val_samples)
+        test_samples = strip_temporal_edge_attr(test_samples)
+        metadata = {**metadata, "edge_feature_names": []}
+    else:
+        train_samples = stabilize_temporal_expert_features(train_samples, metadata)
+        val_samples = stabilize_temporal_expert_features(val_samples, metadata)
+        test_samples = stabilize_temporal_expert_features(test_samples, metadata)
+    if not train_samples or not val_samples:
+        raise SystemExit("Train and validation splits must both contain temporal samples.")
+    normalizer = None
+    if not args.no_normalize:
+        normalizer = fit_feature_normalizer([frame for sample in train_samples for frame in sample.frames], metadata)
+        train_samples = normalize_temporal_samples(train_samples, normalizer)
+        val_samples = normalize_temporal_samples(val_samples, normalizer)
+        test_samples = normalize_temporal_samples(test_samples, normalizer)
     first_frame = samples[0].frames[-1]
     node_dim = first_frame.x.size(1)
     edge_dim = first_frame.edge_attr.size(1) if first_frame.edge_attr.ndim == 2 and first_frame.edge_attr.numel() else 0
+    if args.disable_edge_attr:
+        edge_dim = 0
     device = torch.device(args.device)
 
     model = TemporalGATClassifier(
@@ -65,10 +110,11 @@ def main() -> None:
     ensure_dir(output_path.parent)
 
     print(
-        f"samples: train={len(train_samples)}, val={len(val_samples)}, "
-        f"history={args.history}, node_dim={node_dim}, edge_dim={edge_dim}"
+        f"samples: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)}, "
+        f"history={args.history}, horizon={args.prediction_horizon}, node_dim={node_dim}, edge_dim={edge_dim}",
+        flush=True,
     )
-    print(f"pos_weight={float(pos_weight.item()):.3f}, device={device}")
+    print(f"pos_weight={float(pos_weight.item()):.3f}, device={device}", flush=True)
 
     for epoch in range(1, args.epochs + 1):
         train_loss, train_metrics = run_epoch(model, train_samples, criterion, optimizer, device)
@@ -76,7 +122,10 @@ def main() -> None:
         print(
             f"epoch={epoch:03d} "
             f"train_loss={train_loss:.4f} train_f1={train_metrics['f1']:.3f} "
-            f"val_loss={val_loss:.4f} val_f1={val_metrics['f1']:.3f} val_recall={val_metrics['recall']:.3f}"
+            f"val_loss={val_loss:.4f} val_f1={val_metrics['f1']:.3f} "
+            f"val_best_f1={val_metrics['best_f1']:.3f} val_auprc={val_metrics['auprc']:.3f} "
+            f"val_auroc={val_metrics['auroc']:.3f} val_recall={val_metrics['recall']:.3f}",
+            flush=True,
         )
         if val_metrics["f1"] > best_val_f1:
             best_val_f1 = val_metrics["f1"]
@@ -85,6 +134,7 @@ def main() -> None:
                     "model_state_dict": model.state_dict(),
                     "args": vars(args),
                     "metadata": metadata,
+                    "normalizer": normalizer.to_dict() if normalizer else None,
                     "node_dim": node_dim,
                     "edge_dim": edge_dim,
                     "best_val_metrics": val_metrics,
@@ -92,9 +142,30 @@ def main() -> None:
                 output_path,
             )
 
-    metrics_path = output_path.with_suffix(".metrics.json")
-    metrics_path.write_text(json.dumps({"best_val_f1": best_val_f1}, indent=2), encoding="utf-8")
-    print(f"[OK] saved checkpoint: {output_path}")
+    metrics_path = Path(args.metrics_output) if args.metrics_output else output_path.with_suffix(".metrics.json")
+    test_metrics = {}
+    if test_samples:
+        checkpoint = torch.load(output_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        test_loss, test_metrics = run_epoch(model, test_samples, criterion, None, device)
+        print(
+            f"test_loss={test_loss:.4f} test_f1={test_metrics['f1']:.3f} "
+            f"test_best_f1={test_metrics['best_f1']:.3f} test_auprc={test_metrics['auprc']:.3f} "
+            f"test_auroc={test_metrics['auroc']:.3f} test_recall={test_metrics['recall']:.3f}",
+            flush=True,
+        )
+    metrics_path.write_text(
+        json.dumps(
+            {
+                "best_val_f1": best_val_f1,
+                "test_metrics": test_metrics,
+                "normalization": None if args.no_normalize else "train_split_standardization",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"[OK] saved checkpoint: {output_path}", flush=True)
 
 
 def run_epoch(model, samples, criterion, optimizer, device):
@@ -117,8 +188,54 @@ def run_epoch(model, samples, criterion, optimizer, device):
             all_logits.append(logits.detach().cpu())
             all_targets.append(sample.y.detach().cpu())
     if not losses:
-        return 0.0, binary_metrics(torch.tensor([]), torch.tensor([]))
-    return sum(losses) / len(losses), binary_metrics(torch.cat(all_logits), torch.cat(all_targets))
+        return 0.0, classification_report_metrics(torch.tensor([]), torch.tensor([]))
+    return sum(losses) / len(losses), classification_report_metrics(torch.cat(all_logits), torch.cat(all_targets))
+
+
+def filter_by_scene(samples, scene_ids):
+    if not scene_ids:
+        return []
+    scene_id_set = set(scene_ids)
+    return [sample for sample in samples if sample.scene_id in scene_id_set]
+
+
+def strip_temporal_edge_attr(samples):
+    stripped = []
+    from src.gnn_dataset import FrameGraphSample, TemporalGraphSample
+
+    for sample in samples:
+        frames = [
+            FrameGraphSample(
+                scene_id=frame.scene_id,
+                frame_id=frame.frame_id,
+                timestamp=frame.timestamp,
+                node_ids=frame.node_ids,
+                node_types=frame.node_types,
+                x=frame.x,
+                edge_index=frame.edge_index,
+                edge_attr=torch.empty(frame.edge_index.size(1), 0),
+                target_indices=frame.target_indices,
+                y=frame.y,
+            )
+            for frame in sample.frames
+        ]
+        stripped.append(
+            TemporalGraphSample(
+                scene_id=sample.scene_id,
+                frame_id=sample.frame_id,
+                timestamp=sample.timestamp,
+                frames=frames,
+                target_node_ids=sample.target_node_ids,
+                y=sample.y,
+            )
+        )
+    return stripped
+
+
+def load_scene_split(path):
+    if not path:
+        return {}
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
