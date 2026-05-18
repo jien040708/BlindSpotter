@@ -189,7 +189,7 @@ Validation AUPRC가 가장 높은 에포크의 체크포인트를 `best_mrgcn.pt
 
 > **불균형 데이터에서 AUROC보다 엄격하고 신뢰할 수 있는 지표**
 
-### 5.3 F1 Score (@threshold=0.5)
+### 5.3 F1 Score
 
 ```
 F1 = 2 × (Precision × Recall) / (Precision + Recall)
@@ -199,7 +199,17 @@ F1 = 2 × (Precision × Recall) / (Precision + Recall)
 - Recall: 실제 양성 중 맞게 잡아낸 비율 (누락 억제)
 - F1은 두 지표의 조화 평균
 
-> threshold=0.5는 기본값. 더 낮추면 Recall↑ Precision↓, 더 높이면 반대.
+**threshold 선택 방법 (팀 통일 필요):**
+
+세 모델(GAT / ST-GCNN / MR-GCN)을 공정하게 비교하려면 threshold를 반드시 **val set 기준**으로 선택해야 한다.
+
+```
+1. val set에서 F1이 최대가 되는 threshold 선택
+2. 그 threshold를 고정 → test set에서 F1 평가
+```
+
+> ⚠️ 현재 코드(`threshold_analysis` 셀)는 **test set에서** threshold를 sweep해서 best를 고르고 있어 데이터 leakage 문제가 있다.  
+> 팀 전체가 같은 방식으로 통일한 후 코드를 수정할 것.
 
 ### 5.4 Recall@FPR (FPR 제약 하에서의 재현율)
 
@@ -214,17 +224,35 @@ ROC 커브에서 특정 FPR 지점에서의 TPR(=Recall) 값.
 
 ### 5.5 Early Warning Time (EWT)
 
+**⚠️ 팀 통일 필요: EWT 계산 방식이 두 가지 정의로 혼재함**
+
+#### 현재 코드 방식 (hidden_sec 기반)
+
 ```
-EWT = hidden_sec의 평균 (TP 샘플에 대해)
+EWT_proxy = TP 샘플의 hidden_sec 평균
 ```
 
-`hidden_sec`은 PM이 사각지대에 숨어 있기 시작한 시점부터 현재 프레임까지의 경과 시간(초).
+`hidden_sec`은 PM이 사각지대에 숨은 시점부터 현재 프레임까지의 경과 시간(초).
 
 | 구분 | 해석 |
 |------|------|
 | TP의 mean hidden_sec **낮을수록** 좋음 | PM이 막 숨었을 때(초기)에도 위험을 탐지함 = 조기 경보 |
 | FN의 mean hidden_sec이 높으면 | 오래 숨어 있던 케이스를 놓침 = 만성 누락 |
 | TP mean < FN mean | 모델이 숨은 초기 단계에서 더 잘 탐지함 (이상적) |
+
+#### 팀 문서(metric_info.md) 정의
+
+```
+EWT = t_event - t_detect
+  t_event  : PM이 실제로 도로에 출현한 시각
+  t_detect : 모델이 처음으로 위험(threshold 이상)을 예측한 시각
+```
+
+- **값이 클수록 좋음** (1.3초 = 등장 1.3초 전에 감지)
+- 현재 코드와 **방향이 반대** (hidden_sec은 낮을수록 좋음)
+
+> 팀 내 GAT / ST-GCNN이 어떤 방식으로 EWT를 계산하는지 확인 후 통일할 것.  
+> 통일 방향이 정해지면 코드 수정 예정.
 
 ---
 
@@ -308,14 +336,36 @@ EWT = hidden_sec의 평균 (TP 샘플에 대해)
 
 ### Google Colab (MRGCN_Colab.ipynb)
 
+두 가지 데이터 소스 모드를 지원한다. 셀 0번에서 `DATA_SOURCE`를 선택한다.
+
+#### 모드 A: PKL 파일 사용 (빠름)
+
 ```
+DATA_SOURCE = 'pkl'
+
 1. Google Drive에 graph_dataset.pkl 업로드
 2. 노트북 업로드 후 Runtime → Change runtime type → T4 GPU 선택
-3. 셀 0번에서 DRIVE_DIR 경로를 본인 Drive 경로로 수정
+3. 셀 0번에서 DRIVE_DIR 경로 수정
    예: DRIVE_DIR = '/content/drive/MyDrive/BlindSpotter'
-4. 순서대로 실행 (총 15개 셀)
+4. 순서대로 실행 (총 19개 셀)
 5. 결과물은 Drive의 outputs/ 폴더에 자동 저장됨
 ```
+
+#### 모드 B: 원본 IMPTC 폴더 직접 사용 (raw)
+
+```
+DATA_SOURCE = 'raw'
+
+1. Google Drive에 data/ 폴더 통째로 업로드
+   (각 시퀀스 폴더 안에 vehicles/ 와 vrus/ 가 있는 구조)
+2. 셀 0번에서 RAW_DATA_DIR 경로 수정
+   예: RAW_DATA_DIR = '/content/drive/MyDrive/BlindSpotter/data'
+3. 실행 시 자동으로 그래프 샘플 빌드 → 학습 → 평가 진행
+4. CACHE_PKL 경로를 지정하면 빌드 결과를 pkl로 저장 (다음 실행 시 재사용 가능)
+```
+
+> raw 모드는 src/ 폴더 없이 Colab에서 단독 실행 가능 (모든 전처리 코드 인라인 포함).  
+> 빌드 시간이 추가로 수 분 소요되므로 반복 실행 시 CACHE_PKL을 활용할 것.
 
 ---
 
