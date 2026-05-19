@@ -5,6 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOWNLOAD_DIR="${PROJECT_ROOT}/data/downloads"
 SEQUENCE_DIR="${PROJECT_ROOT}/data/imptc_sequences"
 RECORD_URL="https://zenodo.org/api/records/14811016/files"
+PARALLEL_PARTS="${IMPTC_PARALLEL_PARTS:-1}"
 
 expected_md5() {
   case "$1" in
@@ -33,10 +34,46 @@ for file_name in "$@"; do
 
   archive="${DOWNLOAD_DIR}/${file_name}"
   url="${RECORD_URL}/${file_name}/content"
+  marker="${SEQUENCE_DIR}/.${file_name}.extracted"
+
+  if [[ -f "${marker}" ]]; then
+    echo "[INFO] ${file_name} already extracted."
+    continue
+  fi
 
   if [[ ! -f "${archive}" ]]; then
     echo "[INFO] Downloading ${file_name}..."
-    curl -L -C - --retry 5 --retry-delay 10 --fail "${url}" -o "${archive}"
+    if [[ "${PARALLEL_PARTS}" =~ ^[0-9]+$ ]] && [[ "${PARALLEL_PARTS}" -gt 1 ]]; then
+      tmp_dir="${DOWNLOAD_DIR}/.${file_name}.parts"
+      rm -rf "${tmp_dir}"
+      mkdir -p "${tmp_dir}"
+      total_size="$(python - "${url}" <<'PY'
+from urllib.request import Request, urlopen
+import sys
+
+request = Request(sys.argv[1], method="HEAD")
+with urlopen(request) as response:
+    print(response.headers["Content-Length"])
+PY
+)"
+      for idx in $(seq 0 $((PARALLEL_PARTS - 1))); do
+        start=$((idx * total_size / PARALLEL_PARTS))
+        end=$((((idx + 1) * total_size / PARALLEL_PARTS) - 1))
+        if [[ "${idx}" -eq $((PARALLEL_PARTS - 1)) ]]; then
+          end=$((total_size - 1))
+        fi
+        printf "%s %s %s %s %s\n" "${idx}" "${start}" "${end}" "${url}" "${tmp_dir}"
+      done | xargs -n5 -P"${PARALLEL_PARTS}" sh -c \
+        'curl -L --fail --retry 5 --retry-delay 10 -r "${2}-${3}" "${4}" -o "${5}/part_${1}"' \
+        _
+      : > "${archive}"
+      for idx in $(seq 0 $((PARALLEL_PARTS - 1))); do
+        cat "${tmp_dir}/part_${idx}" >> "${archive}"
+      done
+      rm -rf "${tmp_dir}"
+    else
+      curl -L -C - --retry 5 --retry-delay 10 --fail "${url}" -o "${archive}"
+    fi
   else
     echo "[INFO] Archive already exists: ${archive}"
   fi
@@ -58,17 +95,15 @@ PY
     echo "[ERROR] MD5 mismatch for ${archive}"
     echo "Expected: ${md5}"
     echo "Actual:   ${actual_md5}"
-    exit 1
+    echo "[INFO] Removing incomplete/corrupt archive so it can be downloaded again."
+    rm -f "${archive}"
+    IMPTC_PARALLEL_PARTS="${PARALLEL_PARTS}" "$0" "${file_name}"
+    continue
   fi
 
-  marker="${SEQUENCE_DIR}/.${file_name}.extracted"
-  if [[ -f "${marker}" ]]; then
-    echo "[INFO] ${file_name} already extracted."
-  else
-    echo "[INFO] Extracting ${file_name}..."
-    tar -xzf "${archive}" -C "${SEQUENCE_DIR}"
-    touch "${marker}"
-  fi
+  echo "[INFO] Extracting ${file_name}..."
+  tar -xzf "${archive}" -C "${SEQUENCE_DIR}"
+  touch "${marker}"
 done
 
 echo "[OK] IMPTC sequence data is ready at ${SEQUENCE_DIR}"

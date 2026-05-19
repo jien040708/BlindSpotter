@@ -22,6 +22,7 @@ class FrameGraphSample:
     edge_attr: torch.Tensor
     target_indices: torch.Tensor
     y: torch.Tensor
+    edge_types: list[str] | None = None
 
 
 @dataclass
@@ -129,6 +130,7 @@ def pkl_record_to_frame_sample(record: dict[str, Any], fallback_frame_id: str) -
         edge_attr=torch.tensor(record.get("edge_attr", []), dtype=torch.float32),
         target_indices=torch.tensor([target_index], dtype=torch.long),
         y=torch.tensor([float(record.get("label", 0))], dtype=torch.float32),
+        edge_types=[str(value) for value in record.get("edge_type", [])],
     )
 
 
@@ -209,6 +211,7 @@ def align_frame_sample(
         edge_attr=edge_attr,
         target_indices=sample.target_indices,
         y=sample.y,
+        edge_types=sample.edge_types,
     )
 
 
@@ -287,6 +290,7 @@ def normalize_frame_sample(sample: FrameGraphSample, normalizer: FeatureNormaliz
         edge_attr=edge_attr,
         target_indices=sample.target_indices,
         y=sample.y,
+        edge_types=sample.edge_types,
     )
 
 
@@ -314,6 +318,7 @@ def stabilize_frame_expert_features(sample: FrameGraphSample, ttc_idx: int) -> F
         edge_attr=edge_attr,
         target_indices=sample.target_indices,
         y=sample.y,
+        edge_types=sample.edge_types,
     )
 
 
@@ -452,6 +457,7 @@ def frame_to_sample(scene_id: str, frame: dict[str, Any], target_indices: list[i
         edge_attr=torch.tensor(edge_attr, dtype=torch.float32),
         target_indices=torch.tensor(target_indices, dtype=torch.long),
         y=torch.tensor(y, dtype=torch.float32),
+        edge_types=[str(value) for value in frame.get("edge_type", [])],
     )
 
 
@@ -490,6 +496,7 @@ def move_frame_sample(sample: FrameGraphSample, device: torch.device | str) -> F
         edge_attr=sample.edge_attr.to(device),
         target_indices=sample.target_indices.to(device),
         y=sample.y.to(device),
+        edge_types=sample.edge_types,
     )
 
 

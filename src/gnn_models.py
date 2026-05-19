@@ -7,6 +7,19 @@ import torch.nn.functional as F
 from .gnn_dataset import FrameGraphSample, TemporalGraphSample
 
 
+RELATION_TO_ID = {
+    "vru_to_vehicle": 0,
+    "vehicle_to_vru": 1,
+    "vru_to_blind_zone": 2,
+    "blind_zone_to_vru": 3,
+    "vehicle_to_blind_zone": 4,
+    "blind_zone_to_vehicle": 5,
+    "spatial_near": 6,
+    "temporal_next": 7,
+    "unknown": 8,
+}
+
+
 class ExpertGATLayer(nn.Module):
     """Small edge-aware GAT layer with expert edge features as attention bias."""
 
@@ -106,6 +119,115 @@ class SingleFrameGATClassifier(nn.Module):
         node_embeddings = self.encoder(sample.x, sample.edge_index, sample.edge_attr)
         target_embeddings = node_embeddings[sample.target_indices]
         return self.classifier(target_embeddings).squeeze(-1)
+
+
+class RelationalGraphConvLayer(nn.Module):
+    """Relation-specific graph convolution for comparing against edge-aware GAT."""
+
+    def __init__(self, in_dim: int, out_dim: int, num_relations: int, edge_dim: int = 0, dropout: float = 0.1):
+        super().__init__()
+        self.num_relations = num_relations
+        self.dropout = dropout
+        self.self_proj = nn.Linear(in_dim, out_dim, bias=False)
+        self.relation_proj = nn.ModuleList(nn.Linear(in_dim, out_dim, bias=False) for _ in range(num_relations))
+        self.edge_proj = nn.Linear(edge_dim, out_dim, bias=False) if edge_dim > 0 else None
+        self.norm = nn.LayerNorm(out_dim)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_attr: torch.Tensor,
+        relation_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        num_nodes = x.size(0)
+        out = self.self_proj(x)
+        if edge_index.numel() == 0:
+            return F.elu(self.norm(out))
+
+        src = edge_index[0]
+        dst = edge_index[1]
+        messages = torch.zeros(num_nodes, out.size(-1), device=x.device, dtype=x.dtype)
+        degrees = torch.zeros(num_nodes, 1, device=x.device, dtype=x.dtype)
+        for relation_id in torch.unique(relation_ids):
+            rel = int(relation_id.item())
+            if rel < 0 or rel >= self.num_relations:
+                rel = RELATION_TO_ID["unknown"]
+            mask = relation_ids == relation_id
+            rel_messages = self.relation_proj[rel](x[src[mask]])
+            if self.edge_proj is not None and edge_attr.numel() > 0:
+                rel_messages = rel_messages + self.edge_proj(edge_attr[mask])
+            messages.index_add_(0, dst[mask], rel_messages)
+            degrees.index_add_(0, dst[mask], torch.ones(mask.sum(), 1, device=x.device, dtype=x.dtype))
+
+        out = out + messages / degrees.clamp_min(1.0)
+        out = F.dropout(out, p=self.dropout, training=self.training)
+        return F.elu(self.norm(out))
+
+
+class MRGCNEncoder(nn.Module):
+    def __init__(
+        self,
+        node_dim: int,
+        edge_dim: int,
+        hidden_dim: int = 64,
+        layers: int = 2,
+        dropout: float = 0.1,
+        num_relations: int = len(RELATION_TO_ID),
+    ):
+        super().__init__()
+        self.num_relations = num_relations
+        self.dropout = dropout
+        modules = []
+        in_dim = node_dim
+        for _ in range(layers):
+            modules.append(RelationalGraphConvLayer(in_dim, hidden_dim, num_relations, edge_dim, dropout))
+            in_dim = hidden_dim
+        self.layers = nn.ModuleList(modules)
+        self.output_dim = in_dim
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_attr: torch.Tensor,
+        relation_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        for layer in self.layers:
+            x = layer(x, edge_index, edge_attr, relation_ids)
+        return x
+
+
+class SingleFrameMRGCNClassifier(nn.Module):
+    def __init__(
+        self,
+        node_dim: int,
+        edge_dim: int,
+        hidden_dim: int = 64,
+        layers: int = 2,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.encoder = MRGCNEncoder(node_dim, edge_dim, hidden_dim, layers, dropout)
+        self.classifier = nn.Sequential(
+            nn.Linear(self.encoder.output_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, sample: FrameGraphSample) -> torch.Tensor:
+        relation_ids = relation_tensor(sample.edge_types, sample.edge_index.size(1), sample.edge_index.device)
+        node_embeddings = self.encoder(sample.x, sample.edge_index, sample.edge_attr, relation_ids)
+        target_embeddings = node_embeddings[sample.target_indices]
+        return self.classifier(target_embeddings).squeeze(-1)
+
+
+def relation_tensor(edge_types: list[str] | None, edge_count: int, device: torch.device) -> torch.Tensor:
+    if not edge_types or len(edge_types) != edge_count:
+        edge_types = ["unknown"] * edge_count
+    ids = [RELATION_TO_ID.get(edge_type, RELATION_TO_ID["unknown"]) for edge_type in edge_types]
+    return torch.tensor(ids, dtype=torch.long, device=device)
 
 
 class TemporalGATClassifier(nn.Module):

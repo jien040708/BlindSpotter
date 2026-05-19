@@ -14,6 +14,7 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--train-ratio", type=float, default=0.8)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--prefix", default="imptc_scene", help="Output filename prefix")
     args = parser.parse_args()
 
     summary = json.loads(Path(args.summary).read_text(encoding="utf-8"))
@@ -43,7 +44,9 @@ def main() -> None:
                 "split_unit": "scene",
             },
         }
-        path = output_dir / f"imptc_set01_scene_80_20_repeat_{repeat + 1}.json"
+        train_pct = int(round(args.train_ratio * 100))
+        val_pct = 100 - train_pct
+        path = output_dir / f"{args.prefix}_{train_pct}_{val_pct}_repeat_{repeat + 1}.json"
         path.write_text(json.dumps(split, indent=2), encoding="utf-8")
         print(
             f"[OK] {path}: train_scenes={len(split['train'])}, val_scenes={len(split['val'])}, "

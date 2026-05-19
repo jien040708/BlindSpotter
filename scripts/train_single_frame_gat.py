@@ -27,13 +27,14 @@ from src.gnn_dataset import (
     stabilize_expert_features,
     split_samples,
 )
-from src.gnn_models import SingleFrameGATClassifier
+from src.gnn_models import SingleFrameGATClassifier, SingleFrameMRGCNClassifier
 from src.training_utils import classification_report_metrics, ensure_reproducible
 from src.utils import ensure_dir
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a single-frame expert-informed GAT blind-zone classifier.")
+    parser.add_argument("--model", default="eigat", choices=["eigat", "mrgcn"], help="Single-frame graph model family")
     parser.add_argument("--graphs", default="outputs/graphs", help="Directory containing graph JSON files or graph_dataset.pkl")
     parser.add_argument("--output", default="outputs/models/single_frame_gat.pt", help="Checkpoint output path")
     parser.add_argument("--epochs", type=int, default=20)
@@ -114,14 +115,23 @@ def main() -> None:
     edge_dim = samples[0].edge_attr.size(1) if samples[0].edge_attr.ndim == 2 and samples[0].edge_attr.numel() else 0
     device = torch.device(args.device)
 
-    model = SingleFrameGATClassifier(
-        node_dim=node_dim,
-        edge_dim=edge_dim,
-        hidden_dim=args.hidden_dim,
-        heads=args.heads,
-        layers=args.layers,
-        dropout=args.dropout,
-    ).to(device)
+    if args.model == "mrgcn":
+        model = SingleFrameMRGCNClassifier(
+            node_dim=node_dim,
+            edge_dim=edge_dim,
+            hidden_dim=args.hidden_dim,
+            layers=args.layers,
+            dropout=args.dropout,
+        ).to(device)
+    else:
+        model = SingleFrameGATClassifier(
+            node_dim=node_dim,
+            edge_dim=edge_dim,
+            hidden_dim=args.hidden_dim,
+            heads=args.heads,
+            layers=args.layers,
+            dropout=args.dropout,
+        ).to(device)
     pos_weight = (
         torch.tensor([args.pos_weight], dtype=torch.float32)
         if args.pos_weight is not None
@@ -131,12 +141,13 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     best_val_score = -1.0
+    history = []
     output_path = Path(args.output)
     ensure_dir(output_path.parent)
 
     print(
         f"samples: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)}, "
-        f"node_dim={node_dim}, edge_dim={edge_dim}",
+        f"model={args.model}, node_dim={node_dim}, edge_dim={edge_dim}",
         flush=True,
     )
     print(f"pos_weight={float(pos_weight.item()):.3f}, device={device}", flush=True)
@@ -152,6 +163,15 @@ def main() -> None:
             f"val_best_f1={val_metrics['best_f1']:.3f} val_auprc={val_metrics['auprc']:.3f} "
             f"val_auroc={val_metrics['auroc']:.3f} val_recall={val_metrics['recall']:.3f}",
             flush=True,
+        )
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "train_metrics": train_metrics,
+                "val_metrics": val_metrics,
+            }
         )
         val_score = val_metrics[args.selection_metric]
         if val_score > best_val_score:
@@ -209,6 +229,7 @@ def main() -> None:
                 "selection_metric": args.selection_metric,
                 "best_val_score": best_val_score,
                 "normalization": None if args.no_normalize else "train_split_standardization",
+                "history": history,
                 "test_metrics": test_metrics,
                 "eval_metrics": eval_metrics,
                 "eval_alignment": eval_alignment,
@@ -259,6 +280,7 @@ def strip_frame_edge_attr(samples):
             edge_attr=torch.empty(sample.edge_index.size(1), 0),
             target_indices=sample.target_indices,
             y=sample.y,
+            edge_types=sample.edge_types,
         )
         for sample in samples
     ]
