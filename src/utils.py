@@ -104,9 +104,9 @@ def first_existing(mapping: dict[str, Any], keys: Iterable[str], default: Any = 
 
 
 def object_type_flags(object_type: str) -> tuple[int, int]:
-    normalized = object_type.lower()
-    is_occluder = int(any(token in normalized for token in ["parked", "vehicle", "car", "bus", "truck", "building", "wall"]))
-    is_vru = int(any(token in normalized for token in ["scooter", "bicycle", "bike", "cyclist", "pedestrian", "walker"]))
+    normalized = object_type.lower().replace(" ", "_")
+    is_occluder = int(any(token in normalized for token in ["parked","vehicle","car","bus","truck","building","wall","motorcycle",]))
+    is_vru = int(any(token in normalized for token in ["scooter","e_scooter","electric_scooter","personal_mobility","bicycle","bike","cyclist","pedestrian","person","walker","wheelchair","stroller",]))
     return is_occluder, is_vru
 
 

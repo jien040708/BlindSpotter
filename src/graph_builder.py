@@ -13,19 +13,36 @@ from .utils import euclidean, normalize_angle, object_type_flags, polygon_area, 
 OBJECT_TYPE_TO_ID = {
     "unknown": 0,
     "ego_vehicle": 1,
+
     "e_scooter": 2,
+    "e-scooter": 2,
+    "electric_scooter": 2,
     "scooter": 2,
+    "personal_mobility": 2,
+
     "pedestrian": 3,
-    "cyclist": 12,
+    "person": 3,
+    "walker": 3,
+
     "vehicle": 4,
     "car": 4,
+    "motorcycle": 4,
+
     "parked_vehicle": 5,
     "bus": 6,
     "truck": 7,
+
     "crosswalk": 8,
     "sidewalk": 9,
     "lane": 10,
     "occlusion_zone": 11,
+
+    "cyclist": 12,
+    "bicycle": 12,
+    "bike": 12,
+
+    "wheelchair": 13,
+    "stroller": 14,
 }
 
 NODE_FEATURE_NAMES = [
@@ -60,9 +77,19 @@ def type_id(object_type: str) -> int:
     return OBJECT_TYPE_TO_ID.get(normalized, OBJECT_TYPE_TO_ID["unknown"])
 
 
-def build_scene_graph(scene: Scene, neighbor_radius: float = 30.0) -> dict[str, Any]:
+def build_scene_graph(
+    scene: Scene,
+    neighbor_radius: float = 30.0,
+    label_target: str = "scooter",
+) -> dict[str, Any]:
     frame_graphs = [
-        build_frame_graph(frame, neighbor_radius=neighbor_radius, scene=scene, frame_index=idx)
+        build_frame_graph(
+            frame,
+            neighbor_radius=neighbor_radius,
+            scene=scene,
+            frame_index=idx,
+            label_target=label_target,
+        )
         for idx, frame in enumerate(scene.frames)
     ]
     temporal_edges = build_temporal_edges(scene)
@@ -70,9 +97,10 @@ def build_scene_graph(scene: Scene, neighbor_radius: float = 30.0) -> dict[str, 
         "scene_id": scene.scene_id,
         "source_path": scene.source_path,
         "reference_track": scene.raw.get("reference_track") if isinstance(scene.raw, dict) else None,
+        "label_target": label_target,
         "node_feature_names": NODE_FEATURE_NAMES,
         "edge_feature_names": EDGE_FEATURE_NAMES,
-        "y": build_risk_label(scene),
+        "y": build_risk_label(scene, label_target=label_target),
         "frames": frame_graphs,
         "temporal_edges": temporal_edges,
     }
@@ -83,25 +111,35 @@ def build_frame_graph(
     neighbor_radius: float = 30.0,
     scene: Scene | None = None,
     frame_index: int | None = None,
+    label_target: str = "scooter",
 ) -> dict[str, Any]:
     nodes = [frame.ego] if frame.ego else []
     nodes.extend(frame.objects)
+
     blind_nodes = build_blind_zone_nodes(frame)
     blind_start_idx = len(nodes)
     nodes.extend(blind_nodes)
+
     node_ids = [node.object_id for node in nodes]
     x = [node_features(node, frame.ego) for node in nodes]
 
     edge_index: list[list[int]] = [[], []]
     edge_attr: list[list[float]] = []
     edge_type: list[str] = []
+
     for src_idx, src in enumerate(nodes):
         for dst_idx, dst in enumerate(nodes):
             if src_idx == dst_idx:
                 continue
+
             distance = euclidean((src.x, src.y), (dst.x, dst.y))
-            if distance > neighbor_radius:
+            src_is_blind = src.object_type == "occlusion_zone"
+            dst_is_blind = dst.object_type == "occlusion_zone"
+            force_blind_edge = src_is_blind or dst_is_blind
+
+            if distance > neighbor_radius and not force_blind_edge:
                 continue
+
             edge_index[0].append(src_idx)
             edge_index[1].append(dst_idx)
             edge_attr.append(edge_features(src, dst, distance))
@@ -116,9 +154,9 @@ def build_frame_graph(
         "edge_index": edge_index,
         "edge_attr": edge_attr,
         "edge_type": edge_type,
-        "y": build_frame_risk_label(frame),
+        "y": build_frame_risk_label(frame, label_target=label_target),
         "blind_node_indices": list(range(blind_start_idx, blind_start_idx + len(blind_nodes))),
-        "blind_y": build_blind_labels(scene, frame_index, blind_nodes),
+        "blind_y": build_blind_labels(scene, frame_index, blind_nodes, label_target=label_target),
     }
 
 
@@ -162,14 +200,32 @@ def edge_features(src: ObjectState, dst: ObjectState, distance: float) -> list[f
 
 
 def infer_edge_type(src: ObjectState, dst: ObjectState, distance: float) -> str:
-    if src.object_type == "occlusion_zone" or dst.object_type == "occlusion_zone":
+    src_type = src.object_type
+    dst_type = dst.object_type
+
+    if src_type == "ego_vehicle" and dst_type == "occlusion_zone":
+        return "ego_to_blind_zone"
+
+    if src_type == "occlusion_zone" and dst_type == "ego_vehicle":
+        return "blind_zone_to_ego"
+
+    if src_type == "occlusion_zone" or dst_type == "occlusion_zone":
         return "blind_zone_relation"
-    src_occ = object_type_flags(src.object_type)[0]
-    dst_vru = object_type_flags(dst.object_type)[1]
+
+    src_occ = object_type_flags(src_type)[0]
+    dst_occ = object_type_flags(dst_type)[0]
+    src_vru = object_type_flags(src_type)[1]
+    dst_vru = object_type_flags(dst_type)[1]
+
     if src_occ and dst_vru and distance < 10.0:
         return "occludes"
+
+    if dst_occ and src_vru and distance < 10.0:
+        return "occludes"
+
     if distance < 5.0:
         return "potential_conflict"
+
     return "spatial_near"
 
 
@@ -250,10 +306,24 @@ def compute_blind_zone_polygon(
     return [tangent_left, far_left, far_center, far_right, tangent_right]
 
 
-def build_blind_labels(scene: Scene | None, frame_index: int | None, blind_nodes: list[ObjectState]) -> list[int]:
+def build_blind_labels(
+    scene: Scene | None,
+    frame_index: int | None,
+    blind_nodes: list[ObjectState],
+    label_target: str = "scooter",
+) -> list[int]:
     if scene is None or frame_index is None:
         return [0 for _ in blind_nodes]
-    return [build_blind_zone_label(scene, frame_index, node) for node in blind_nodes]
+
+    return [
+        build_blind_zone_label(
+            scene,
+            frame_index,
+            node,
+            label_target=label_target,
+        )
+        for node in blind_nodes
+    ]
 
 
 def build_temporal_edges(scene: Scene) -> list[dict[str, Any]]:

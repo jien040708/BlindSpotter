@@ -151,3 +151,118 @@ class TemporalGATClassifier(nn.Module):
         sequence_tensor = torch.stack(target_sequences, dim=0)
         _, hidden = self.gru(sequence_tensor)
         return self.classifier(hidden[-1]).squeeze(-1)
+
+class SimpleSTGCNNClassifier(nn.Module):
+    """
+    STGCNN-style blind-zone risk classifier.
+
+    Input:
+      x: [B, T, N, F]
+      adj: [B, T, N, N]
+      node_mask: [B, T, N]
+      target_indices: [B, M]
+
+    Output:
+      logits: [B, M]
+    """
+
+    def __init__(
+        self,
+        node_dim: int,
+        hidden_dim: int = 64,
+        temporal_hidden_dim: int = 64,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.dropout = dropout
+
+        self.gcn1 = nn.Linear(node_dim, hidden_dim)
+        self.gcn2 = nn.Linear(hidden_dim, hidden_dim)
+
+        self.temporal_conv = nn.Conv1d(
+            in_channels=hidden_dim,
+            out_channels=temporal_hidden_dim,
+            kernel_size=3,
+            padding=1,
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Linear(temporal_hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def normalize_adj(self, adj: torch.Tensor, node_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """
+        adj: [B, N, N]
+        node_mask: [B, N]
+        """
+        if node_mask is not None:
+            valid = node_mask.unsqueeze(-1) * node_mask.unsqueeze(-2)
+            adj = adj * valid
+
+        degree = adj.sum(dim=-1)
+        deg_inv_sqrt = torch.pow(degree.clamp(min=1e-6), -0.5)
+        return deg_inv_sqrt.unsqueeze(-1) * adj * deg_inv_sqrt.unsqueeze(-2)
+
+    def graph_conv(
+        self,
+        x: torch.Tensor,
+        adj: torch.Tensor,
+        layer: nn.Linear,
+        node_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        x: [B, N, F]
+        adj: [B, N, N]
+        node_mask: [B, N]
+        """
+        adj = self.normalize_adj(adj, node_mask=node_mask)
+        h = torch.bmm(adj, x)
+        h = layer(h)
+        h = F.relu(h)
+
+        if node_mask is not None:
+            h = h * node_mask.unsqueeze(-1)
+
+        return h
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        adj: torch.Tensor,
+        target_indices: torch.Tensor,
+        node_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        B, T, N, F_dim = x.shape
+        M = target_indices.size(1)
+
+        per_time_embeddings = []
+
+        for t in range(T):
+            current_mask = node_mask[:, t] if node_mask is not None else None
+
+            h = self.graph_conv(x[:, t], adj[:, t], self.gcn1, node_mask=current_mask)
+            h = F.dropout(h, p=self.dropout, training=self.training)
+            h = self.graph_conv(h, adj[:, t], self.gcn2, node_mask=current_mask)
+
+            gather_idx = target_indices.unsqueeze(-1).expand(B, M, h.size(-1))
+            target_h = h.gather(dim=1, index=gather_idx)
+
+            per_time_embeddings.append(target_h)
+
+        h_seq = torch.stack(per_time_embeddings, dim=2)
+        # [B, M, T, H]
+
+        h_seq = h_seq.reshape(B * M, T, -1).transpose(1, 2)
+        # [B*M, H, T]
+
+        h_temporal = self.temporal_conv(h_seq)
+        h_final = h_temporal[:, :, -1]
+        # [B*M, temporal_hidden_dim]
+
+        logits = self.classifier(h_final).squeeze(-1)
+        logits = logits.view(B, M)
+
+        return logits

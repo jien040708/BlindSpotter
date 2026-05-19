@@ -11,6 +11,8 @@ RELATION_TO_ID = {
     "occludes": 2,
     "blind_zone_relation": 3,
     "temporal_next": 4,
+    "ego_to_blind_zone": 5,
+    "blind_zone_to_ego": 6,
     "unknown": 99,
 }
 

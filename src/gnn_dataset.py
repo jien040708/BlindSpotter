@@ -7,7 +7,18 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from torch.utils.data import Dataset
 
+
+class TemporalGraphDataset(Dataset):
+    def __init__(self, samples: list[TemporalGraphSample]):
+        self.samples = samples
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> TemporalGraphSample:
+        return self.samples[idx]
 
 @dataclass
 class FrameGraphSample:
@@ -94,6 +105,50 @@ def load_temporal_samples(graph_dir: str | Path, history: int = 5) -> tuple[list
             )
     return temporal_samples, metadata
 
+def load_temporal_samples_from_graphs(
+    graphs: list[dict[str, Any]],
+    history: int = 5,
+) -> tuple[list[TemporalGraphSample], dict[str, list[str]]]:
+    temporal_samples: list[TemporalGraphSample] = []
+    metadata = {"node_feature_names": [], "edge_feature_names": []}
+
+    for graph in graphs:
+        metadata["node_feature_names"] = graph.get("node_feature_names", metadata["node_feature_names"])
+        metadata["edge_feature_names"] = graph.get("edge_feature_names", metadata["edge_feature_names"])
+
+        scene_id = str(graph.get("scene_id", "unknown"))
+        frame_samples = []
+
+        for frame in graph.get("frames", []):
+            frame_samples.append(
+                frame_to_sample(
+                    scene_id,
+                    frame,
+                    frame.get("blind_node_indices", []),
+                    frame.get("blind_y", []),
+                )
+            )
+
+        for idx, current in enumerate(frame_samples):
+            if current.target_indices.numel() == 0:
+                continue
+
+            start = max(0, idx - history + 1)
+            window = frame_samples[start: idx + 1]
+            target_node_ids = [current.node_ids[int(i)] for i in current.target_indices.tolist()]
+
+            temporal_samples.append(
+                TemporalGraphSample(
+                    scene_id=current.scene_id,
+                    frame_id=current.frame_id,
+                    timestamp=current.timestamp,
+                    frames=window,
+                    target_node_ids=target_node_ids,
+                    y=current.y,
+                )
+            )
+
+    return temporal_samples, metadata
 
 def frame_to_sample(scene_id: str, frame: dict[str, Any], target_indices: list[int], y: list[int]) -> FrameGraphSample:
     edge_index = frame.get("edge_index", [[], []])
@@ -161,3 +216,63 @@ def move_temporal_sample(sample: TemporalGraphSample, device: torch.device | str
         target_node_ids=sample.target_node_ids,
         y=sample.y.to(device),
     )
+
+
+def collate_temporal_graphs(batch: list[TemporalGraphSample]) -> dict[str, torch.Tensor]:
+    batch_size = len(batch)
+    max_t = max(len(sample.frames) for sample in batch)
+    max_n = max(frame.x.size(0) for sample in batch for frame in sample.frames)
+    feat_dim = batch[0].frames[-1].x.size(1)
+    max_targets = max(sample.y.numel() for sample in batch)
+
+    x = torch.zeros(batch_size, max_t, max_n, feat_dim, dtype=torch.float32)
+    adj = torch.zeros(batch_size, max_t, max_n, max_n, dtype=torch.float32)
+    node_mask = torch.zeros(batch_size, max_t, max_n, dtype=torch.float32)
+
+    target_indices = torch.zeros(batch_size, max_targets, dtype=torch.long)
+    target_mask = torch.zeros(batch_size, max_targets, dtype=torch.float32)
+    y = torch.zeros(batch_size, max_targets, dtype=torch.float32)
+
+    for b, sample in enumerate(batch):
+        offset = max_t - len(sample.frames)
+
+        for t, frame in enumerate(sample.frames):
+            tt = offset + t
+            n = frame.x.size(0)
+
+            x[b, tt, :n] = frame.x
+            node_mask[b, tt, :n] = 1.0
+
+            if frame.edge_index.numel() > 0:
+                src = frame.edge_index[0]
+                dst = frame.edge_index[1]
+                num_edges = src.numel()
+
+                weights = torch.ones(num_edges, dtype=torch.float32)
+
+                # edge_attr[:, 0] = distance
+                # Social-STGCNN식으로 가까울수록 큰 weight를 주는 inverse-distance kernel 사용
+                if frame.edge_attr.numel() > 0 and frame.edge_attr.dim() == 2 and frame.edge_attr.size(0) == num_edges:
+                    distance = frame.edge_attr[:, 0].clamp(min=1e-6)
+                    weights = 1.0 / distance
+                    weights = weights.clamp(max=10.0)
+
+                adj[b, tt, src, dst] = weights
+
+            # valid node에만 self-loop 추가
+            valid = torch.arange(n)
+            adj[b, tt, valid, valid] = 1.0
+
+        m = sample.y.numel()
+        y[b, :m] = sample.y
+        target_mask[b, :m] = 1.0
+        target_indices[b, :m] = sample.frames[-1].target_indices[:m]
+
+    return {
+        "x": x,
+        "adj": adj,
+        "node_mask": node_mask,
+        "target_indices": target_indices,
+        "target_mask": target_mask,
+        "y": y,
+    }
