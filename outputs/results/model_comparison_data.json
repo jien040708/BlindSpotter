@@ -1,6 +1,6 @@
 {
   "EIGAT": {
-    "epochs": 5,
+    "epochs": 20,
     "type": "Single-frame",
     "val_auroc": 0.687,
     "val_auprc": 0.02,

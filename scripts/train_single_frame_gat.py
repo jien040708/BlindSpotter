@@ -197,9 +197,26 @@ def main() -> None:
         checkpoint = torch.load(output_path, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         test_loss, test_metrics = run_epoch(model, test_samples, criterion, None, device)
+
+        # Fix: select threshold from val set, not test set (prevents leakage).
+        # best_val_metrics stored in checkpoint has the val-sweep threshold.
+        val_threshold = checkpoint.get("best_val_metrics", {}).get("best_threshold", 0.5)
+        with torch.no_grad():
+            _logits_list, _targets_list = [], []
+            for _s in test_samples:
+                _s = move_frame_sample(_s, device)
+                _logits_list.append(model(_s).detach().cpu())
+                _targets_list.append(_s.y.detach().cpu())
+        from src.training_utils import binary_metrics as _bm
+        _val_thr_result = _bm(torch.cat(_logits_list), torch.cat(_targets_list), threshold=val_threshold)
+        test_metrics["best_f1"] = _val_thr_result["f1"]
+        test_metrics["best_threshold"] = val_threshold
+        test_metrics["threshold_source"] = "val_sweep"
+
         print(
             f"test_loss={test_loss:.4f} test_f1={test_metrics['f1']:.3f} "
-            f"test_best_f1={test_metrics['best_f1']:.3f} test_auprc={test_metrics['auprc']:.3f} "
+            f"test_best_f1={test_metrics['best_f1']:.3f} (val_thr={val_threshold:.3f}) "
+            f"test_auprc={test_metrics['auprc']:.3f} "
             f"test_auroc={test_metrics['auroc']:.3f} test_recall={test_metrics['recall']:.3f}",
             flush=True,
         )

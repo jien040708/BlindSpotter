@@ -307,7 +307,7 @@ Second, blind-zone nodes are generated using a simplified occluder heuristic rat
 
 Third, `blind_y` is a proxy label for future VRU emergence near a blind zone. It is not a direct collision-risk or injury-severity label.
 
-Fourth, positive labels are highly imbalanced, so threshold selection is important. The project uses validation threshold sweeps and reports Best F1 in addition to F1@0.5.
+Fourth, positive labels are highly imbalanced, so threshold selection is important. The project uses threshold sweeps and reports Best F1 in addition to F1@0.5.
 
 Finally, the current temporal model uses a short 5-frame history. Longer temporal horizons, map-aware features, lane context, traffic signals, and better label definitions remain important future work.
 
@@ -335,18 +335,14 @@ scripts/plot_imptc_research_visualizations.py
 
 ## Submission Notes
 
-The submission zip is intentionally lightweight. It includes the latest tracked code, README, documentation, summary results, and key visualizations from the `main` branch.
-
-The following large files and folders are excluded:
+The submission archive contains source code and the scene-level split:
 
 ```text
-raw IMPTC data
-downloaded archives
-intermediate graph JSON files
-model checkpoints
-graph_dataset.pkl
-large generated output folders
+src/
+scripts/
+requirements.txt
+README.md
+outputs/scene_split.json # scene-level 70/15/15 split (seed=7)
 ```
 
-The full experiment can be reproduced by cloning the GitHub repository and running the commands described above.
-```
+Raw IMPTC data is not included due to its size. To reproduce results, download the IMPTC set01–set05 archives and run the full pipeline as described in the Quick Reproduction section above.
