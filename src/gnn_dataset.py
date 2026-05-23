@@ -388,6 +388,15 @@ def load_temporal_samples(
     history: int = 5,
     prediction_horizon: int = 0,
 ) -> tuple[list[TemporalGraphSample], dict[str, list[str]]]:
+    graph_dir = Path(graph_dir)
+    cache_path = graph_dir.parent / f".temporal_cache_h{history}_t{prediction_horizon}.pkl"
+
+    # Try loading from cache
+    if cache_path.exists():
+        print(f"Loading from cache: {cache_path.name}", flush=True)
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
+
     graphs = load_graph_jsons(graph_dir)
     temporal_samples: list[TemporalGraphSample] = []
     metadata = {"node_feature_names": [], "edge_feature_names": []}
@@ -438,6 +447,12 @@ def load_temporal_samples(
                     y=y,
                 )
             )
+
+    # Save cache
+    print(f"Saving cache: {cache_path.name}", flush=True)
+    with open(cache_path, 'wb') as f:
+        pickle.dump((temporal_samples, metadata), f)
+
     return temporal_samples, metadata
 
 

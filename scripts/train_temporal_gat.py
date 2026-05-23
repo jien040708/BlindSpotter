@@ -220,6 +220,10 @@ def run_epoch(model, samples, criterion, optimizer, device):
             losses.append(float(loss.detach().cpu().item()))
             all_logits.append(logits.detach().cpu())
             all_targets.append(sample.y.detach().cpu())
+
+            # 명시적으로 GPU 메모리 해제
+            del sample, logits, loss
+            torch.cuda.empty_cache()
     if not losses:
         return 0.0, classification_report_metrics(torch.tensor([]), torch.tensor([]))
     return sum(losses) / len(losses), classification_report_metrics(torch.cat(all_logits), torch.cat(all_targets))
