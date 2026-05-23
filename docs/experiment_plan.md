@@ -211,3 +211,86 @@ positive_rate
 
 이 연구에서는 false negative가 위험하므로, accuracy보다 **recall과 F1**을 더 중요하게 봅니다.
 
+## feature/eigcn: graph_dataset.pkl 기준 Step 1
+
+가공된 pickle dataset을 바로 사용할 때는 `feature/eigcn` 브랜치에서 아래처럼 실행합니다.
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_single_frame_gat.py \
+  --graphs graph_dataset.pkl \
+  --output outputs/models/single_frame_gat.pt \
+  --epochs 20 \
+  --hidden-dim 64 \
+  --heads 2 \
+  --layers 2
+```
+
+현재 `graph_dataset.pkl`은 이미 `train`, `val`, `test` split을 포함하므로, 스크립트는 random split을 다시 만들지 않고 pickle의 split을 그대로 사용합니다.
+
+디버그용 smoke test는 다음처럼 작게 돌릴 수 있습니다.
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_single_frame_gat.py \
+  --graphs graph_dataset.pkl \
+  --output outputs/models/single_frame_gat_smoke.pt \
+  --epochs 1 \
+  --hidden-dim 16 \
+  --heads 2 \
+  --layers 1 \
+  --max-train-samples 256 \
+  --max-val-samples 128 \
+  --max-test-samples 128
+```
+
+pickle의 현재 feature는 다음과 같습니다.
+
+```text
+node_feature_names:
+x, y, vx, vy, heading, type_id, speed, is_occluder
+
+edge_feature_names:
+distance, rel_vx, rel_vy, rel_heading, visibility_blocked
+```
+
+## Dataset Alignment Fix
+
+`graph_dataset.pkl`과 IMPTC canonical graph JSON은 서로 다른 feature contract에서 출발합니다.
+
+```text
+graph_dataset.pkl:
+node 8 features, edge 5 features
+
+IMPTC canonical graph JSON:
+node 14 features, edge 6 features
+```
+
+따라서 raw tensor를 그대로 비교하지 않고, 학습 checkpoint의 feature contract에 맞춰 IMPTC graph를 정렬합니다.
+
+```text
+object_type_id ↔ type_id
+relative_velocity_x ↔ rel_vx
+relative_velocity_y ↔ rel_vy
+relative_heading ↔ rel_heading
+```
+
+또한 train split에서 feature normalization 통계를 fit하고, val/test/eval graph에 같은 통계를 적용합니다. 이때 categorical/binary feature는 normalization하지 않습니다.
+
+```text
+not normalized:
+type_id, object_type_id, visibility, is_occluder,
+is_vulnerable_road_user, visibility_blocked
+```
+
+재평가는 다음처럼 합니다.
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python scripts/evaluate_single_frame_gat.py \
+  --checkpoint outputs/models/single_frame_gat_aligned_1layer_3ep.pt \
+  --graphs graph_dataset.pkl \
+  --split test
+
+KMP_DUPLICATE_LIB_OK=TRUE python scripts/evaluate_single_frame_gat.py \
+  --checkpoint outputs/models/single_frame_gat_aligned_1layer_3ep.pt \
+  --graphs outputs/graphs_validation_all \
+  --split all
+```

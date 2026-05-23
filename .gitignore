@@ -17,4 +17,4 @@ outputs/*
 imptc_samples/
 imptc_trajectory/
 data/generated/
-
+*.pkl
