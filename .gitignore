@@ -14,6 +14,9 @@ data/*
 !data/.gitkeep
 outputs/*
 !outputs/.gitkeep
+!outputs/results/*.md
+!outputs/results/*.csv
+!outputs/figures/**/*.png
 imptc_samples/
 imptc_trajectory/
 data/generated/

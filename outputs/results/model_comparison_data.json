@@ -1,0 +1,32 @@
+{
+  "EIGAT": {
+    "epochs": 5,
+    "type": "Single-frame",
+    "val_auroc": 0.687,
+    "val_auprc": 0.02,
+    "val_best_f1": 0.052,
+    "test_auroc": 0.592,
+    "test_auprc": 0.024,
+    "test_best_f1": 0.074
+  },
+  "MR-GCN": {
+    "epochs": 20,
+    "type": "Single-frame",
+    "val_auroc": 0.706,
+    "val_auprc": 0.023,
+    "val_best_f1": 0.047,
+    "test_auroc": 0.565,
+    "test_auprc": 0.015,
+    "test_best_f1": 0.034
+  },
+  "ST-GCN": {
+    "epochs": 20,
+    "type": "Temporal (5-frame)",
+    "val_auroc": 0.891,
+    "val_auprc": 0.546,
+    "val_best_f1": 0.622,
+    "test_auroc": 0.87,
+    "test_auprc": 0.52,
+    "test_best_f1": 0.61
+  }
+}
