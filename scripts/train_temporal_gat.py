@@ -24,13 +24,19 @@ from src.gnn_dataset import (
     stabilize_temporal_expert_features,
     split_samples,
 )
-from src.gnn_models import TemporalGATClassifier
+from src.gnn_models import TemporalGATClassifier, TemporalMRGCNTransformerClassifier, TemporalSocialSTGCNClassifier
 from src.training_utils import classification_report_metrics, ensure_reproducible
 from src.utils import ensure_dir
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a temporal expert-informed GAT + GRU blind-zone classifier.")
+    parser.add_argument(
+        "--temporal-model",
+        default="gat_gru",
+        choices=["gat_gru", "social_stgcn", "mrgcn_transformer"],
+        help="Temporal model family",
+    )
     parser.add_argument("--graphs", default="outputs/graphs", help="Directory containing graph JSON files")
     parser.add_argument("--output", default="outputs/models/temporal_gat.pt", help="Checkpoint output path")
     parser.add_argument("--history", type=int, default=5, help="Number of past/current frames per sample")
@@ -105,15 +111,36 @@ def main() -> None:
         edge_dim = 0
     device = torch.device(args.device)
 
-    model = TemporalGATClassifier(
-        node_dim=node_dim,
-        edge_dim=edge_dim,
-        hidden_dim=args.hidden_dim,
-        temporal_hidden_dim=args.temporal_hidden_dim,
-        heads=args.heads,
-        layers=args.layers,
-        dropout=args.dropout,
-    ).to(device)
+    if args.temporal_model == "social_stgcn":
+        model = TemporalSocialSTGCNClassifier(
+            node_dim=node_dim,
+            edge_dim=edge_dim,
+            hidden_dim=args.hidden_dim,
+            temporal_hidden_dim=args.temporal_hidden_dim,
+            layers=args.layers,
+            dropout=args.dropout,
+        ).to(device)
+    elif args.temporal_model == "mrgcn_transformer":
+        model = TemporalMRGCNTransformerClassifier(
+            node_dim=node_dim,
+            edge_dim=edge_dim,
+            hidden_dim=args.hidden_dim,
+            temporal_hidden_dim=args.temporal_hidden_dim,
+            heads=args.heads,
+            layers=args.layers,
+            dropout=args.dropout,
+            max_history=max(args.history, 64),
+        ).to(device)
+    else:
+        model = TemporalGATClassifier(
+            node_dim=node_dim,
+            edge_dim=edge_dim,
+            hidden_dim=args.hidden_dim,
+            temporal_hidden_dim=args.temporal_hidden_dim,
+            heads=args.heads,
+            layers=args.layers,
+            dropout=args.dropout,
+        ).to(device)
     pos_weight = (
         torch.tensor([args.pos_weight], dtype=torch.float32)
         if args.pos_weight is not None
@@ -129,7 +156,8 @@ def main() -> None:
 
     print(
         f"samples: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)}, "
-        f"history={args.history}, horizon={args.prediction_horizon}, node_dim={node_dim}, edge_dim={edge_dim}",
+        f"history={args.history}, horizon={args.prediction_horizon}, model={args.temporal_model}, "
+        f"node_dim={node_dim}, edge_dim={edge_dim}",
         flush=True,
     )
     print(f"pos_weight={float(pos_weight.item()):.3f}, device={device}", flush=True)

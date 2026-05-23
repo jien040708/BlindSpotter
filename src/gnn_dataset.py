@@ -379,6 +379,7 @@ NODE_NON_NORMALIZED_FEATURES = {
 
 
 EDGE_NON_NORMALIZED_FEATURES = {
+    "distance",
     "visibility_blocked",
 }
 

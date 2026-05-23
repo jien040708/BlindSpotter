@@ -25,6 +25,12 @@ def main() -> None:
     parser.add_argument("--max-frames", type=int, default=500, help="Maximum frames per IMPTC sequence")
     parser.add_argument("--frame-stride", type=int, default=5, help="Use every Nth IMPTC frame")
     parser.add_argument("--neighbor-radius", type=float, default=30.0, help="Spatial graph neighbor radius in meters")
+    parser.add_argument(
+        "--label-target",
+        choices=["scooter", "vru"],
+        default="scooter",
+        help="Positive blind-zone target: scooter-only or all VRU classes",
+    )
     parser.add_argument("--format", choices=["json", "pkl"], default="json", help="Output graph format")
     args = parser.parse_args()
 
@@ -45,7 +51,7 @@ def main() -> None:
 
     summaries = []
     for scene in scenes:
-        graph = build_scene_graph(scene, neighbor_radius=args.neighbor_radius)
+        graph = build_scene_graph(scene, neighbor_radius=args.neighbor_radius, label_target=args.label_target)
         output_path = output_dir / f"{scene.scene_id}.{args.format}"
         if args.format == "json":
             save_graph_json(graph, output_path)
@@ -83,6 +89,7 @@ def summarize_graph(graph: dict) -> dict:
         "blind_nodes": blind_nodes,
         "positive_blind_labels": positive_blind,
         "scene_label": graph.get("y"),
+        "label_target": graph.get("label_target", "scooter"),
         "node_types": dict(sorted(node_types.items())),
     }
 

@@ -1,6 +1,6 @@
 # IMPTC Set01+Set02 Graph Experiments
 
-This workflow trains the current EIGAT baseline, an MR-GCN comparison model, and the temporal ST-GCN/ST-GAT path on only official IMPTC set01 and set02 sequence data.
+This workflow trains the current EIGAT baseline, an MR-GCN comparison model, and the temporal Social-STGCNN path on only official IMPTC set01 and set02 sequence data.
 
 ## Data
 
@@ -29,7 +29,7 @@ IMPTC_PARALLEL_PARTS=16 ./scripts/run_imptc_set01_set02_experiments.sh
 
 - `eigat_single_frame`: frame graph -> edge-aware GAT -> blind-zone node embedding -> `blind_y`
 - `mrgcn_single_frame`: frame graph -> relation-specific message passing -> blind-zone node embedding -> `blind_y`
-- `stgcn_temporal_h5_t1`: past 5 frames -> per-frame graph encoder -> GRU temporal aggregation -> `blind_y` at `t+1`
+- `stgcn_temporal_h5_t1`: past 5 frames -> inverse-distance graph convolution -> temporal convolution -> `blind_y` at `t+1`
 
 ## Shared Training Conditions
 
@@ -69,7 +69,7 @@ python scripts/create_scene_split.py --summary outputs/graphs_imptc_set01_set02/
 ```bash
 KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_single_frame_gat.py --model eigat --graphs outputs/graphs_imptc_set01_set02 --scene-split outputs/splits/imptc_set01_set02_scene_split.json --output outputs/models/imptc_set01_set02/eigat_single_frame.pt --metrics-output outputs/models/imptc_set01_set02/eigat_single_frame.metrics.json --epochs 12 --hidden-dim 32 --layers 1 --heads 2 --negative-ratio 20 --pos-weight 1 --selection-metric auprc --device cpu
 KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_mrgcn.py --graphs outputs/graphs_imptc_set01_set02 --scene-split outputs/splits/imptc_set01_set02_scene_split.json --output outputs/models/imptc_set01_set02/mrgcn_single_frame.pt --metrics-output outputs/models/imptc_set01_set02/mrgcn_single_frame.metrics.json --epochs 12 --hidden-dim 32 --layers 1 --negative-ratio 20 --pos-weight 1 --selection-metric auprc --device cpu
-KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_stgcn.py --graphs outputs/graphs_imptc_set01_set02 --scene-split outputs/splits/imptc_set01_set02_scene_split.json --output outputs/models/imptc_set01_set02/stgcn_temporal_h5_t1.pt --metrics-output outputs/models/imptc_set01_set02/stgcn_temporal_h5_t1.metrics.json --history 5 --prediction-horizon 1 --epochs 4 --hidden-dim 32 --temporal-hidden-dim 32 --layers 1 --heads 2 --negative-ratio 20 --pos-weight 1 --selection-metric auprc --device cpu
+KMP_DUPLICATE_LIB_OK=TRUE python scripts/train_stgcn.py --temporal-model social_stgcn --graphs outputs/graphs_imptc_set01_set02 --scene-split outputs/splits/imptc_set01_set02_scene_split.json --output outputs/models/imptc_set01_set02/stgcn_temporal_h5_t1.pt --metrics-output outputs/models/imptc_set01_set02/stgcn_temporal_h5_t1.metrics.json --history 5 --prediction-horizon 1 --epochs 4 --hidden-dim 32 --temporal-hidden-dim 32 --layers 1 --heads 2 --negative-ratio 20 --pos-weight 1 --selection-metric auprc --device cpu
 ```
 
 After all three metric files exist, regenerate the final table and plots:

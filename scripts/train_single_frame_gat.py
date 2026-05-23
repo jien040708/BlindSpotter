@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--metrics-output", default=None, help="Optional metrics JSON output path")
     parser.add_argument("--no-normalize", action="store_true", help="Disable train-fitted feature normalization")
     parser.add_argument("--disable-edge-attr", action="store_true", help="Ablation: remove expert edge features")
+    parser.add_argument("--no-degree-embedding", action="store_true", help="Ablation: disable MR-GCN in/out degree embedding")
     parser.add_argument("--train-scenes", nargs="*", default=None)
     parser.add_argument("--val-scenes", nargs="*", default=None)
     parser.add_argument("--test-scenes", nargs="*", default=None)
@@ -122,6 +123,7 @@ def main() -> None:
             hidden_dim=args.hidden_dim,
             layers=args.layers,
             dropout=args.dropout,
+            degree_embedding=not args.no_degree_embedding,
         ).to(device)
     else:
         model = SingleFrameGATClassifier(

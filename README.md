@@ -21,7 +21,7 @@ IMPTC set01, set02, ...
 -> scene-level train/val/test split
 -> EIGAT single-frame classifier
 -> MR-GCN single-frame comparison
--> ST-GCN/ST-GAT temporal comparison
+-> Social-STGCNN / MR-GCN+Transformer temporal comparison
 -> AUROC, AUPRC, F1-score 평가
 -> 논문용 diagnostic figure 생성
 ```
@@ -107,6 +107,12 @@ SOURCE_ROOT=data/sample DOWNLOAD_IMPTC=0 SETS="1 2 3" ./scripts/run_imptc_sets_e
 SOURCE_ROOT=data/sample DOWNLOAD_IMPTC=0 SETS="1" ./scripts/run_imptc_sets_experiments.sh
 ```
 
+Positive label 범위를 넓히고 싶으면 `LABEL_TARGET=vru`를 사용할 수 있습니다. 기본값은 scooter/e-scooter 중심의 `scooter`입니다.
+
+```bash
+LABEL_TARGET=vru SETS="1 2 3" ./scripts/run_imptc_sets_experiments.sh
+```
+
 ## 전체 파이프라인
 
 범용 실행 스크립트는 아래 순서로 동작합니다.
@@ -123,7 +129,7 @@ SOURCE_ROOT=data/sample DOWNLOAD_IMPTC=0 SETS="1" ./scripts/run_imptc_sets_exper
 9. scene-level stratified train/val/test split 생성
 10. EIGAT single-frame 모델 학습
 11. MR-GCN single-frame 모델 학습
-12. ST-GCN/ST-GAT temporal 모델 학습
+12. Social-STGCNN-style temporal 모델 학습
 13. metric JSON, CSV, Markdown 저장
 14. metric plot과 research visualization 저장
 ```
@@ -168,6 +174,43 @@ visibility_blocked
 ```
 
 MR-GCN은 `edge_type`을 relation id로 사용하고, EIGAT/ST-GCN은 edge feature를 attention/message passing에 사용합니다.
+
+## 논문 기반 모델 개선
+
+현재 구현에는 두 논문에서 가져온 핵심 아이디어를 반영했습니다.
+
+```text
+Learning From Interaction-Enhanced Scene Graph for Pedestrian Collision Risk Assessment
+-> MR-GCN relation-specific message passing
+-> in-degree / out-degree enhanced initial node embedding
+-> optional MR-GCN + Temporal Transformer temporal model
+
+Social-STGCNN
+-> inverse-distance weighted adjacency kernel
+-> self-loop 포함 normalized adjacency
+-> recurrent model 대신 temporal convolution 사용
+-> compact spatio-temporal graph convolution baseline
+```
+
+Temporal 모델은 아래 옵션 중 하나를 선택할 수 있습니다.
+
+```bash
+--temporal-model gat_gru
+--temporal-model social_stgcn
+--temporal-model mrgcn_transformer
+```
+
+전체 runner의 기본 temporal model은 `social_stgcn`입니다. 기존 GAT+GRU baseline으로 되돌리고 싶으면:
+
+```bash
+TEMPORAL_MODEL=gat_gru SETS="1 2" ./scripts/run_imptc_sets_experiments.sh
+```
+
+MR-GCN+Temporal Transformer를 돌리고 싶으면:
+
+```bash
+TEMPORAL_MODEL=mrgcn_transformer SETS="1 2" ./scripts/run_imptc_sets_experiments.sh
+```
 
 ## Train/Validation/Test Split
 
@@ -243,7 +286,8 @@ python scripts/preprocess_sample.py \
   --output outputs/graphs_imptc_set01_set02 \
   --max-frames 500 \
   --frame-stride 5 \
-  --neighbor-radius 30
+  --neighbor-radius 30 \
+  --label-target scooter
 ```
 
 EIGAT만 학습:
@@ -273,7 +317,7 @@ python scripts/train_mrgcn.py \
   --device cpu
 ```
 
-ST-GCN/ST-GAT만 학습:
+Social-STGCNN만 학습:
 
 ```bash
 python scripts/train_stgcn.py \
@@ -281,6 +325,23 @@ python scripts/train_stgcn.py \
   --scene-split outputs/splits/imptc_set01_set02_scene_split.json \
   --output outputs/models/imptc_set01_set02/stgcn_temporal_h5_t1.pt \
   --metrics-output outputs/models/imptc_set01_set02/stgcn_temporal_h5_t1.metrics.json \
+  --temporal-model social_stgcn \
+  --history 5 \
+  --prediction-horizon 1 \
+  --epochs 4 \
+  --selection-metric auprc \
+  --device cpu
+```
+
+MR-GCN + Temporal Transformer만 학습:
+
+```bash
+python scripts/train_temporal_gat.py \
+  --temporal-model mrgcn_transformer \
+  --graphs outputs/graphs_imptc_set01_set02 \
+  --scene-split outputs/splits/imptc_set01_set02_scene_split.json \
+  --output outputs/models/imptc_set01_set02/mrgcn_transformer_h5_t1.pt \
+  --metrics-output outputs/models/imptc_set01_set02/mrgcn_transformer_h5_t1.metrics.json \
   --history 5 \
   --prediction-horizon 1 \
   --epochs 4 \
@@ -347,7 +408,7 @@ python scripts/plot_imptc_research_visualizations.py \
 
 6. Temporal model은 아직 짧은 history baseline입니다.
 
-   현재 ST-GCN/ST-GAT는 `history=5`, `prediction_horizon=1` 기준의 baseline입니다. 연구 목적에 맞게 1초 전후 history와 미래 horizon을 더 체계적으로 sweep해야 합니다.
+   현재 Social-STGCNN/MR-GCN+Transformer는 `history=5`, `prediction_horizon=1` 기준의 baseline입니다. 연구 목적에 맞게 1초 전후 history와 미래 horizon을 더 체계적으로 sweep해야 합니다.
 
 7. Map/context feature가 부족합니다.
 
@@ -372,7 +433,7 @@ src/imptc_dataset.py                 # IMPTC track.json -> Scene/Frame/ObjectSta
 src/graph_builder.py                 # graph node/edge/blind-zone 생성
 src/label_builder.py                 # blind-zone label 생성
 src/gnn_dataset.py                   # graph JSON -> 학습 sample
-src/gnn_models.py                    # EIGAT, MR-GCN, Temporal GAT 모델
+src/gnn_models.py                    # EIGAT, MR-GCN, Social-STGCNN, Temporal Transformer 모델
 src/training_utils.py                # metric, seed, 학습 helper
 
 scripts/run_imptc_sets_experiments.sh       # 전체 set 실험 runner

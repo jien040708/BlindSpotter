@@ -25,7 +25,13 @@ from src.gnn_dataset import (
     stabilize_expert_features,
     stabilize_temporal_expert_features,
 )
-from src.gnn_models import SingleFrameGATClassifier, SingleFrameMRGCNClassifier, TemporalGATClassifier
+from src.gnn_models import (
+    SingleFrameGATClassifier,
+    SingleFrameMRGCNClassifier,
+    TemporalGATClassifier,
+    TemporalMRGCNTransformerClassifier,
+    TemporalSocialSTGCNClassifier,
+)
 from src.training_utils import classification_report_metrics
 
 
@@ -98,12 +104,14 @@ def predict_single_frame(label: str, checkpoint_path: Path, graph_dir: Path, spl
         samples = normalize_frame_samples(samples, FeatureNormalizer.from_dict(checkpoint["normalizer"]))
 
     if args.get("model") == "mrgcn" or label == "MR-GCN":
+        has_degree_embedding = any("degree_embedding" in key for key in checkpoint["model_state_dict"])
         model = SingleFrameMRGCNClassifier(
             node_dim=checkpoint["node_dim"],
             edge_dim=checkpoint["edge_dim"],
             hidden_dim=args.get("hidden_dim", 32),
             layers=args.get("layers", 1),
             dropout=args.get("dropout", 0.1),
+            degree_embedding=has_degree_embedding,
         )
     else:
         model = SingleFrameGATClassifier(
@@ -152,15 +160,37 @@ def predict_temporal(label: str, checkpoint_path: Path, graph_dir: Path, split_s
     if checkpoint.get("normalizer"):
         samples = normalize_temporal_samples(samples, FeatureNormalizer.from_dict(checkpoint["normalizer"]))
 
-    model = TemporalGATClassifier(
-        node_dim=checkpoint["node_dim"],
-        edge_dim=checkpoint["edge_dim"],
-        hidden_dim=args.get("hidden_dim", 32),
-        temporal_hidden_dim=args.get("temporal_hidden_dim", 32),
-        heads=args.get("heads", 2),
-        layers=args.get("layers", 1),
-        dropout=args.get("dropout", 0.1),
-    )
+    temporal_model = args.get("temporal_model", "gat_gru")
+    if temporal_model == "social_stgcn":
+        model = TemporalSocialSTGCNClassifier(
+            node_dim=checkpoint["node_dim"],
+            edge_dim=checkpoint["edge_dim"],
+            hidden_dim=args.get("hidden_dim", 32),
+            temporal_hidden_dim=args.get("temporal_hidden_dim", 32),
+            layers=args.get("layers", 1),
+            dropout=args.get("dropout", 0.1),
+        )
+    elif temporal_model == "mrgcn_transformer":
+        model = TemporalMRGCNTransformerClassifier(
+            node_dim=checkpoint["node_dim"],
+            edge_dim=checkpoint["edge_dim"],
+            hidden_dim=args.get("hidden_dim", 32),
+            temporal_hidden_dim=args.get("temporal_hidden_dim", 32),
+            heads=args.get("heads", 2),
+            layers=args.get("layers", 1),
+            dropout=args.get("dropout", 0.1),
+            max_history=max(args.get("history", 5), 64),
+        )
+    else:
+        model = TemporalGATClassifier(
+            node_dim=checkpoint["node_dim"],
+            edge_dim=checkpoint["edge_dim"],
+            hidden_dim=args.get("hidden_dim", 32),
+            temporal_hidden_dim=args.get("temporal_hidden_dim", 32),
+            heads=args.get("heads", 2),
+            layers=args.get("layers", 1),
+            dropout=args.get("dropout", 0.1),
+        )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

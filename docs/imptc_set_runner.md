@@ -6,7 +6,7 @@
 2. collect only the requested sequence folders into `data/imptc_selected/<tag>`
 3. preprocess sequences into graph JSON
 4. create a shared scene-level train/val/test split
-5. train EIGAT, MR-GCN, and optionally ST-GCN
+5. train EIGAT, MR-GCN, and optionally Social-STGCNN / MR-GCN+Transformer temporal models
 6. aggregate AUROC, AUPRC, F1-score results
 7. save metric plots and research visualizations
 
@@ -110,9 +110,11 @@ temporal_event_timeline.png
 SETS="1 2"              # selected IMPTC sets, supported official chunks: 1..5
 SOURCE_ROOT=data/imptc_sequences
 DOWNLOAD_IMPTC=1        # set 0 when using manually copied data under data/sample
+LABEL_TARGET=scooter    # scooter or vru
 EPOCHS=12              # EIGAT and MR-GCN epochs
 TEMPORAL_EPOCHS=4      # ST-GCN epochs
 RUN_STGCN=1            # set 0 to skip temporal model
+TEMPORAL_MODEL=social_stgcn  # gat_gru, social_stgcn, or mrgcn_transformer
 RUN_RESEARCH_PLOTS=1   # set 0 to skip paper-style visualizations
 DEVICE=cpu             # cpu, mps, or cuda depending on local environment
 NEGATIVE_RATIO=20      # negative blind-zone samples per positive sample

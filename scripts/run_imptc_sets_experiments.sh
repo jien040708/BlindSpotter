@@ -24,6 +24,8 @@ FRAME_STRIDE="${FRAME_STRIDE:-5}"
 NEIGHBOR_RADIUS="${NEIGHBOR_RADIUS:-30}"
 RUN_STGCN="${RUN_STGCN:-1}"
 RUN_RESEARCH_PLOTS="${RUN_RESEARCH_PLOTS:-1}"
+TEMPORAL_MODEL="${TEMPORAL_MODEL:-social_stgcn}"
+LABEL_TARGET="${LABEL_TARGET:-scooter}"
 
 normalize_sets() {
   python - "$SETS" <<'PY'
@@ -50,7 +52,12 @@ if [[ -z "${SET_IDS}" ]]; then
   exit 1
 fi
 
-TAG="set$(echo "${SET_IDS}" | sed 's/ /_set/g')"
+SET_TAG="set$(echo "${SET_IDS}" | sed 's/ /_set/g')"
+LABEL_SUFFIX=""
+if [[ "${LABEL_TARGET:-scooter}" != "scooter" ]]; then
+  LABEL_SUFFIX="_${LABEL_TARGET}"
+fi
+TAG="${SET_TAG}${LABEL_SUFFIX}"
 SELECTED_ROOT="${SELECTED_ROOT:-data/imptc_selected/${TAG}}"
 GRAPHS_DIR="${GRAPHS_DIR:-outputs/graphs_imptc_${TAG}}"
 SPLIT_PATH="${SPLIT_PATH:-outputs/splits/imptc_${TAG}_scene_split.json}"
@@ -139,7 +146,8 @@ python scripts/preprocess_sample.py \
   --output "${GRAPHS_DIR}" \
   --max-frames "${MAX_FRAMES}" \
   --frame-stride "${FRAME_STRIDE}" \
-  --neighbor-radius "${NEIGHBOR_RADIUS}"
+  --neighbor-radius "${NEIGHBOR_RADIUS}" \
+  --label-target "${LABEL_TARGET}"
 
 echo "[4/8] Creating shared scene split"
 python scripts/create_scene_split.py \
@@ -194,6 +202,7 @@ if [[ "${RUN_STGCN}" == "1" ]]; then
     --scene-split "${SPLIT_PATH}" \
     --output "${MODEL_DIR}/stgcn_temporal_h5_t1.pt" \
     --metrics-output "${MODEL_DIR}/stgcn_temporal_h5_t1.metrics.json" \
+    --temporal-model "${TEMPORAL_MODEL}" \
     --history 5 \
     --prediction-horizon 1 \
     --epochs "${TEMPORAL_EPOCHS}" \
